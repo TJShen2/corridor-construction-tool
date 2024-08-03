@@ -11,50 +11,43 @@ importPackage(Packages.com.sk89q.worldedit.function.mask);
 
 //argv:
 //1: material of track bed
-//2: blocks that may be replaced by the embankment
-//3: material of embankment
-//4: maximum height of embankment
-var maxHeight = argv[4];
-//5: grade of embankment
-var grade = argv[5];
+//2: material of embankment
+//3: maximum height of embankment
+const maxHeight = argv[3];
+//4: grade of embankment
+const grade = argv[4];
 
-var editSession;
-var localSession;
-var selectedRegion;
-var parserContext;
-
-editSession = context.remember();
-
-//Get the player's region selection
-localSession = context.getSession();
-selectedRegion = localSession.getSelection();
+const editSession = context.remember();
+const localSession = context.getSession();
+// The player's region selection
+const selectedRegion = localSession.getSelection();
+const parserContext = new ParserContext();
 
 //Initialise parserContext
-parserContext = new ParserContext();
 parserContext.setExtent(new SideEffectExtent(editSession.getWorld()));
 parserContext.setSession(localSession);
 parserContext.setWorld(editSession.getWorld());
 parserContext.setActor(player);
 
 //Material of the track
-let trackMask = WorldEdit.getInstance().getMaskFactory().parseFromInput(argv[1], parserContext);
-
-//Set the mask for the blocks that may be replaced
-let replaceableBlockMask = WorldEdit.getInstance().getMaskFactory().parseFromInput(argv[2], parserContext);
+const trackMask = WorldEdit.getInstance().getMaskFactory().parseFromInput(argv[1], parserContext);
 
 //Define masks
-let groundMask = new MaskIntersection(Masks.negate(replaceableBlockMask), Masks.negate(trackMask));
-let railMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("mtr:rail", parserContext);
+const groundMask = new MaskIntersection(Masks.negate(replaceableBlockMask), Masks.negate(trackMask));
+const replaceableBlockMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("##transit_corridor:railway_embankment_replaceable", parserContext);
+const railMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("mtr:rail", parserContext);
+
+//Set the mask for the blocks that may be replaced
 editSession.setMask(new MaskIntersection(replaceableBlockMask, Masks.negate(railMask)));
 
 //Provide feedback to user
 let blocksChanged = 0;
 let blocksEvaluated = 0;
-let regionSize = selectedRegion.getVolume();
+const regionSize = selectedRegion.getVolume();
 context.print("Creating embankment...");
 
 //Loop through all blocks in selection
-let iterator = selectedRegion.iterator();
+const iterator = selectedRegion.iterator();
 
 //Hash table containing each column near the track
 let columns = new Map();
@@ -101,7 +94,7 @@ function checkHeightMap(origin, radius, cuboidRegion) {
 
     while (iterator.hasNext()) {
         let column = iterator.next().toBlockVector2();
-        
+
         if (column.distance(origin2D) <= radius) {
             let isValidHeight = columns.get(column);
 
@@ -115,7 +108,7 @@ function checkHeightMap(origin, radius, cuboidRegion) {
             } else {
                 invalidHeightCount++;
             }
-        }       
+        }
     }
     let isValidHeightMap = validHeightCount / invalidHeightCount >= 19;
     return isValidHeightMap;

@@ -13,45 +13,38 @@ importPackage(Packages.com.sk89q.worldedit.function.mask);
 
 //argv:
 //1: material of track bed or material of cutting wall
-//2: blocks that may be replaced
-//3: fencing material
-//4: fencing height
-const fencingHeight = new Integer(argv[4]);
+//2: fencing material
+//3: fencing height
+const fencingHeight = new Integer(argv[3]);
 
-var editSession;
-var localSession;
-var selectedRegion;
-var parserContext;
-
-editSession = context.remember();
-
-//Get the player's region selection
-localSession = context.getSession();
-selectedRegion = localSession.getSelection();
+const editSession = context.remember();
+const localSession = context.getSession();
+// The player's region selection
+const selectedRegion = localSession.getSelection();
+const parserContext = new ParserContext();
 
 //Initialise parserContext
-parserContext = new ParserContext();
 parserContext.setExtent(new SideEffectExtent(editSession.getWorld()));
 parserContext.setSession(localSession);
 parserContext.setWorld(editSession.getWorld());
 parserContext.setActor(player);
 
 //Material of the track
-let trackMask = WorldEdit.getInstance().getMaskFactory().parseFromInput(argv[1], parserContext);
+const trackMask = WorldEdit.getInstance().getMaskFactory().parseFromInput(argv[1], parserContext);
 
 //Set the mask for the blocks that may be replaced
-let replaceableBlockMask = WorldEdit.getInstance().getMaskFactory().parseFromInput(argv[2], parserContext);
-let railMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("mtr:rail", parserContext);
+const replaceableBlockMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("##transit_corridor:railway_embankment_replaceable", parserContext);
+const railMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("mtr:rail", parserContext);
 editSession.setMask(new MaskIntersection(replaceableBlockMask, Masks.negate(railMask)));
 
 //Provide feedback to user
 let blocksChanged = 0;
 let blocksEvaluated = 0;
-let regionSize = selectedRegion.getVolume();
+const regionSize = selectedRegion.getVolume();
 context.print("Creating fencing...");
 
 //Loop through all blocks in selection
-let iterator = selectedRegion.iterator();
+const iterator = selectedRegion.iterator();
 
 while (iterator.hasNext()) {
     let point = iterator.next();
@@ -76,14 +69,8 @@ while (iterator.hasNext()) {
         let isOnEdge = neighbouringTrackBlocksCount < 8;
 
         if (replaceableBlockMask.test(point.add(0,1,0)) && ((trackMask.test(point.subtract(0,1,0)) && trackMask.test(point.subtract(0,2,0))) || isOnEdge)) {
-            let fencingHeightBonus;
-            if (neighbouringTrackBlocksCount == 2) {
-                fencingHeightBonus = 2;
-            } else {
-                fencingHeightBonus = 1;
-            }
-            for (i = 1; i < fencingHeight + fencingHeightBonus; i++) {
-                editSession.setBlock(point.add(0,i,0), BlockTypes.get(argv[3]).getDefaultState());
+            for (i = 1; i < fencingHeight + 1; i++) {
+                editSession.setBlock(point.add(0,i,0), BlockTypes.get(argv[2]).getDefaultState());
                 blocksChanged++;
             }
         }
