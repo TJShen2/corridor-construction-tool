@@ -7,24 +7,21 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
+import com.sk89q.worldedit.extension.factory.MaskFactory;
+import com.sk89q.worldedit.extension.factory.PatternFactory;
 import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.extension.platform.Actor;
-import com.sk89q.worldedit.extent.world.SideEffectExtent;
-import com.sk89q.worldedit.function.mask.BlockMask;
 import com.sk89q.worldedit.function.mask.Mask;
 import com.sk89q.worldedit.function.mask.MaskIntersection;
 import com.sk89q.worldedit.function.mask.Masks;
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
-import com.sk89q.worldedit.world.block.BaseBlock;
 import com.sk89q.worldedit.world.block.BlockTypes;
 
 import net.minecraft.server.command.ServerCommandSource;
 
 import static net.minecraft.server.command.CommandManager.*;
-
-import java.util.ArrayList;
 
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
@@ -45,38 +42,35 @@ public class TunnelCommand {
 																																																	// into the command.
 	}
 
-	public static int createTunnel(ServerCommandSource source, String trackMaskString, String tunnelMaterialString,
+	private static int createTunnel(ServerCommandSource source, String trackMaskString, String tunnelMaterialString,
 			int tunnelHeight) {
 		CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
 
 		// Define masks and patterns
+		MaskFactory maskFactory = WorldEdit.getInstance().getMaskFactory();
+		PatternFactory patternFactory = WorldEdit.getInstance().getPatternFactory();
+
 		Mask trackMask;
-		Mask replaceableBlockMask;
-		Mask airMask;
-		Mask railMask;
 		Pattern tunnelMaterial;
+
+		Mask replaceableBlockMask;
+		Mask groundMask;
+		Mask airMask;
+
 		try {
-			trackMask = WorldEdit.getInstance().getMaskFactory().parseFromInput(trackMaskString,
-					constants.getParserContext());
-			replaceableBlockMask = WorldEdit.getInstance().getMaskFactory()
-					.parseFromInput("##transit_corridor:railway_embankment_replaceable", constants.getParserContext());
-			airMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("minecraft:air", constants.getParserContext());
-			tunnelMaterial = WorldEdit.getInstance().getPatternFactory().parseFromInput(tunnelMaterialString,
-					constants.getParserContext());
+			trackMask = maskFactory.parseFromInput(trackMaskString, constants.getParserContext());
+			tunnelMaterial = patternFactory.parseFromInput(tunnelMaterialString, constants.getParserContext());
+			replaceableBlockMask = maskFactory.parseFromInput("##corridor_construction_tool:tunnel_replaceable", constants.getParserContext());
+			groundMask = new MaskIntersection(Masks.negate(replaceableBlockMask), maskFactory.parseFromInput("#taglib:overworld_natural", constants.getParserContext()));
+			airMask = maskFactory.parseFromInput("minecraft:air", constants.getParserContext());
 		} catch (InputParseException e) {
 			constants.getActor()
 					.printError(TextComponent.of("The mask and pattern arguments for the command /tunnel may have been invalid\n" + e));
 			return 0;
 		}
-		try {
-			railMask = WorldEdit.getInstance().getMaskFactory().parseFromInput("mtr:rail", constants.getParserContext());
-		} catch (InputParseException e) {
-			railMask = new BlockMask(new SideEffectExtent(constants.getSelectionWorld()), new ArrayList<BaseBlock>());
-		}
-		Mask groundMask = new MaskIntersection(Masks.negate(replaceableBlockMask), Masks.negate(trackMask), Masks.negate(railMask));
 
 		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
-			editSession.setMask(Masks.negate(railMask));
+			editSession.setMask(replaceableBlockMask);
 
 			// Provide feedback to user
 			int blocksEvaluated = 0;
@@ -103,15 +97,7 @@ public class TunnelCommand {
 					boolean isOnEdge = neighbouringTrackBlocksCount < 8;
 					boolean isBelowTrack = trackMask.test(point.add(0, 1, 0));
 					boolean isTunnel = groundMask.test(ceilingLocation.add(BlockVector3.UNIT_Y));
-					boolean isTransition = !isTunnel &&
-							(groundMask.test(ceilingLocation.add(1, 1, 0)) ||
-									groundMask.test(ceilingLocation.add(-1, 1, 0)) ||
-									groundMask.test(ceilingLocation.add(0, 1, 1)) ||
-									groundMask.test(ceilingLocation.add(0, 1, -1)) ||
-									groundMask.test(ceilingLocation.add(-1, 1, -1)) ||
-									groundMask.test(ceilingLocation.add(1, 1, -1)) ||
-									groundMask.test(ceilingLocation.add(1, 1, 1)) ||
-									groundMask.test(ceilingLocation.add(-1, 1, 1)));
+					boolean isTransition = !isTunnel && pointIsAdjacentTo(ceilingLocation.add(BlockVector3.UNIT_Y), groundMask);
 
 					if (isOnEdge) {
 						isOnEdgeCount++;
@@ -158,15 +144,7 @@ public class TunnelCommand {
 							while (true) {
 								i++;
 								BlockVector3 wallBlock = point.add(0, i, 0);
-
-								boolean wallBlockTouchingGround = groundMask.test(wallBlock.add(1, 0, 0)) ||
-										groundMask.test(wallBlock.add(-1, 0, 0)) ||
-										groundMask.test(wallBlock.add(0, 0, 1)) ||
-										groundMask.test(wallBlock.add(0, 0, -1)) ||
-										groundMask.test(wallBlock.add(-1, 0, -1)) ||
-										groundMask.test(wallBlock.add(1, 0, -1)) ||
-										groundMask.test(wallBlock.add(1, 0, 1)) ||
-										groundMask.test(wallBlock.add(-1, 0, 1));
+								boolean wallBlockTouchingGround = pointIsAdjacentTo(wallBlock, groundMask);
 
 								if (wallBlockTouchingGround) {
 									try {
@@ -194,15 +172,7 @@ public class TunnelCommand {
 							while (true) {
 								i++;
 								BlockVector3 wallBlock = ceilingLocation.add(0, i, 0);
-
-								boolean wallBlockTouchingGround = groundMask.test(wallBlock.add(1, 0, 0)) ||
-										groundMask.test(wallBlock.add(-1, 0, 0)) ||
-										groundMask.test(wallBlock.add(0, 0, 1)) ||
-										groundMask.test(wallBlock.add(0, 0, -1)) ||
-										groundMask.test(wallBlock.add(-1, 0, -1)) ||
-										groundMask.test(wallBlock.add(1, 0, -1)) ||
-										groundMask.test(wallBlock.add(1, 0, 1)) ||
-										groundMask.test(wallBlock.add(-1, 0, 1));
+								boolean wallBlockTouchingGround = pointIsAdjacentTo(wallBlock, groundMask);
 
 								if (replaceableBlockMask.test(wallBlock) && wallBlockTouchingGround) {
 									try {
@@ -230,13 +200,13 @@ public class TunnelCommand {
 			constants.getActor().printInfo(TextComponent.of(editSession.getBlockChangeCount() + " blocks were changed."));
 			constants.getActor().printInfo(TextComponent.of(isOnEdgeCount + " blocks were on edge"));
 			constants.getActor().printInfo(TextComponent.of(isTunnelCount + " blocks were tunnel floor"));
-			constants.getActor().printInfo(TextComponent.of(isTransitionCount + " block were transition floor"));
+			constants.getActor().printInfo(TextComponent.of(isTransitionCount + " blocks were transition floor"));
 			constants.getLocalSession().remember(editSession);
 		}
 		return Command.SINGLE_SUCCESS;
 	}
 
-	public static void clearAbove(BlockVector3 point, int height, Mask airMask, EditSession editSession, Actor actor) {
+	private static void clearAbove(BlockVector3 point, int height, Mask airMask, EditSession editSession, Actor actor) {
 		for (int i = 1; i < height; i++) {
 			if (!airMask.test(point.add(0, i, 0))) {
 				try {
@@ -246,5 +216,15 @@ public class TunnelCommand {
 				}
 			}
 		}
+	}
+	private static boolean pointIsAdjacentTo(BlockVector3 point, Mask adjacentMask) {
+		return adjacentMask.test(point.add(1, 0, 0)) ||
+				adjacentMask.test(point.add(-1, 0, 0)) ||
+				adjacentMask.test(point.add(0, 0, 1)) ||
+				adjacentMask.test(point.add(0, 0, -1)) ||
+				adjacentMask.test(point.add(-1, 0, -1)) ||
+				adjacentMask.test(point.add(1, 0, -1)) ||
+				adjacentMask.test(point.add(1, 0, 1)) ||
+				adjacentMask.test(point.add(-1, 0, 1));
 	}
 }

@@ -8,11 +8,10 @@
 		"71_damage"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"sources": "https://github.com/TJShen2/corridor-construction-tool"
 	},
 	"license": "CC0-1.0",
-	"icon": "assets/modid/icon.png",
+	"icon": "assets/corridor-construction-tool/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
