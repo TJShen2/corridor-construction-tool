@@ -1,9 +1,0 @@
-{
-    "replace": false,
-    "values": [
-        "#taglib:walk_through",
-        "#minecraft:leaves",
-        "#minecraft:logs",
-        "minecraft:kelp"
-    ]
-}

@@ -1,0 +1,42 @@
+{
+	"schemaVersion": 1,
+	"id": "corridor-construction-tool",
+	"version": "${version}",
+	"name": "Corridor Construction Tool",
+	"description": "Corridor Construction Tool is a utility mod intended to be used with the Minecraft Transit Railway mod to make construction of railway corridors more convienient.",
+	"authors": [
+		"71_damage"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/modid/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.example.CorridorConstructionTool"
+		],
+		"client": [
+			"com.example.CorridorConstructionToolClient"
+		]
+	},
+	"mixins": [
+		"modid.mixins.json",
+		{
+			"config": "modid.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.15.11",
+		"minecraft": ">=1.19",
+		"java": ">=21",
+		"fabric-api": "*",
+		"worldedit": ">=7.2.12"
+	},
+	"suggests": {
+		"mtr": "*"
+	}
+}
