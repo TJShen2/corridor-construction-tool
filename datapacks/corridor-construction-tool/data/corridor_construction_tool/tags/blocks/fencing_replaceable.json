@@ -1,14 +1,6 @@
 {
   "replace": false,
   "values": [
-      "#corridor_construction_tool:non_full_blocks",
-      "minecraft:bee_nest",
-      "minecraft:beehive",
-      "minecraft:chorus_flower",
-      "minecraft:mangrove_roots",
-      "minecraft:shroomlight",
-      "#minecraft:wart_blocks",
-      "#minecraft:leaves",
-      "#minecraft:logs"
+      "#corridor_construction_tool:natural_non_terrain"
   ]
 }

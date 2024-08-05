@@ -1,5 +1,6 @@
-package com.example;
+package com.example.command;
 
+import com.example.CorridorConstructionConstants;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
@@ -60,7 +61,7 @@ public class EmbankmentCommand {
 			trackMask = maskFactory.parseFromInput(trackMaskString, constants.getParserContext());
 			embankmentMaterial = patternFactory.parseFromInput(embankmentMaterialString, constants.getParserContext());
 			replaceableBlockMask = maskFactory.parseFromInput("##corridor_construction_tool:embankment_replaceable", constants.getParserContext());
-			groundMask = new MaskIntersection(Masks.negate(replaceableBlockMask), maskFactory.parseFromInput("#taglib:overworld_natural", constants.getParserContext()));
+			groundMask = new MaskIntersection(maskFactory.parseFromInput("##corridor_construction_tool:natural", constants.getParserContext()), Masks.negate(maskFactory.parseFromInput("##corridor_construction_tool:natural_non_terrain", constants.getParserContext())));
 		} catch (InputParseException e) {
 			constants.getActor().printError(TextComponent.of("The mask and pattern arguments for the command /embankment may have been invalid\n" + e));
 			return 0;

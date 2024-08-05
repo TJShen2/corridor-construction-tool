@@ -1,8 +1,6 @@
 {
   "replace": false,
   "values": [
-    "#taglib:overworld_natural",
-    "#taglib:nether_natural",
-    "#taglib:end_natural"
+    "#corridor_construction_tool:natural"
   ]
 }

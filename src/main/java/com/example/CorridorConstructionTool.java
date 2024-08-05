@@ -6,6 +6,10 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.example.command.EmbankmentCommand;
+import com.example.command.FencingCommand;
+import com.example.command.TunnelCommand;
+
 //TODO: create bridge pillars
 //TODO: create overhead line (requires integration with fencing design)
 

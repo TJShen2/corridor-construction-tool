@@ -1,7 +1,9 @@
-package com.example;
+package com.example.command;
 
+import com.example.CorridorConstructionConstants;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.sk89q.worldedit.EditSession;
@@ -11,9 +13,14 @@ import com.sk89q.worldedit.extension.factory.MaskFactory;
 import com.sk89q.worldedit.extension.factory.PatternFactory;
 import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.extension.platform.Actor;
+import com.sk89q.worldedit.extent.clipboard.Clipboard;
+import com.sk89q.worldedit.extent.clipboard.io.ClipboardFormat;
+import com.sk89q.worldedit.extent.clipboard.io.ClipboardFormats;
+import com.sk89q.worldedit.extent.clipboard.io.ClipboardReader;
 import com.sk89q.worldedit.function.mask.Mask;
 import com.sk89q.worldedit.function.mask.MaskIntersection;
 import com.sk89q.worldedit.function.mask.Masks;
+import com.sk89q.worldedit.function.pattern.ClipboardPattern;
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
@@ -23,8 +30,13 @@ import net.minecraft.server.command.ServerCommandSource;
 
 import static net.minecraft.server.command.CommandManager.*;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
+import static com.mojang.brigadier.arguments.BoolArgumentType.getBool;
 
 public class TunnelCommand {
 	public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
@@ -35,15 +47,16 @@ public class TunnelCommand {
 				.then(argument("trackMask", StringArgumentType.string())
 				.then(argument("tunnelMaterial", StringArgumentType.string())
 				.then(argument("tunnelHeight", IntegerArgumentType.integer())
+				.then(argument("withSchematic", BoolArgumentType.bool())
 				.executes(ctx -> createTunnel(ctx.getSource(), getString(ctx, "trackMask"),
-						getString(ctx, "tunnelMaterial"), getInteger(ctx, "tunnelHeight"))))))); // You can deal with
+						getString(ctx, "tunnelMaterial"), getInteger(ctx, "tunnelHeight"), getBool(ctx, "withSchematic")))))))); // You can deal with
 																																																	// the arguments out
 																																																	// here and pipe them
 																																																	// into the command.
 	}
 
-	private static int createTunnel(ServerCommandSource source, String trackMaskString, String tunnelMaterialString,
-			int tunnelHeight) {
+	public static int createTunnel(ServerCommandSource source, String trackMaskString, String tunnelMaterialString,
+			int tunnelHeight, boolean withSchematic) {
 		CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
 
 		// Define masks and patterns
@@ -57,12 +70,34 @@ public class TunnelCommand {
 		Mask groundMask;
 		Mask airMask;
 
+		if (withSchematic) {
+    	Clipboard clipboard;
+
+			File schematicFile = constants.getSelectionWorld().getStoragePath().getParent().getParent().resolve("config/worldedit/schematics/" + tunnelMaterialString + ".schem").toFile();
+			ClipboardFormat format = ClipboardFormats.findByFile(schematicFile);
+			try {
+				try (ClipboardReader reader = format.getReader(new FileInputStream(schematicFile))) {
+						clipboard = reader.read();
+				}
+				tunnelMaterial = new ClipboardPattern(clipboard);
+			} catch (IOException e) {
+        constants.getActor().printError(TextComponent.of("Failed to load schematic: " + schematicFile.toString()));
+        return 0;
+      }
+		} else {
+			try {
+				tunnelMaterial = patternFactory.parseFromInput(tunnelMaterialString, constants.getParserContext());
+			} catch (InputParseException e) {
+				constants.getActor().printError(TextComponent.of("Failed to parse argument \"tunnelMaterial\""));
+				return 0;
+			}
+		}
+
 		try {
 			trackMask = maskFactory.parseFromInput(trackMaskString, constants.getParserContext());
-			tunnelMaterial = patternFactory.parseFromInput(tunnelMaterialString, constants.getParserContext());
 			replaceableBlockMask = maskFactory.parseFromInput("##corridor_construction_tool:tunnel_replaceable", constants.getParserContext());
-			groundMask = new MaskIntersection(Masks.negate(replaceableBlockMask), maskFactory.parseFromInput("#taglib:overworld_natural", constants.getParserContext()));
 			airMask = maskFactory.parseFromInput("minecraft:air", constants.getParserContext());
+			groundMask = new MaskIntersection(maskFactory.parseFromInput("##corridor_construction_tool:natural", constants.getParserContext()), Masks.negate(maskFactory.parseFromInput("##corridor_construction_tool:natural_non_terrain", constants.getParserContext())));
 		} catch (InputParseException e) {
 			constants.getActor()
 					.printError(TextComponent.of("The mask and pattern arguments for the command /tunnel may have been invalid\n" + e));

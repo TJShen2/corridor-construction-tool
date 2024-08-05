@@ -1,4 +1,4 @@
-package com.example;
+package com.example.command;
 
 import net.minecraft.server.command.ServerCommandSource;
 
@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import com.example.CorridorConstructionConstants;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
