@@ -1,6 +1,7 @@
 package com.example.command;
 
 import com.example.CorridorConstructionConstants;
+import com.example.Functions;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
@@ -118,18 +119,9 @@ public class TunnelCommand {
 			// Loop through all blocks in selection
 			for (BlockVector3 point : constants.getSelectedRegion()) {
 				if (trackMask.test(point)) {
-					int neighbouringTrackBlocksCount = ((trackMask.test(point.add(1,0,0)) || trackMask.test(point.add(1,1,0)) || trackMask.test(point.add(1,-1,0))) ? 1 : 0) +
-						((trackMask.test(point.add(0,0,1)) || trackMask.test(point.add(0,1,1)) || trackMask.test(point.add(0,-1,1))) ? 1 : 0) +
-						((trackMask.test(point.add(-1,0,0)) || trackMask.test(point.add(-1,1,0)) || trackMask.test(point.add(-1,-1,0))) ? 1 : 0) +
-						((trackMask.test(point.add(0,0,-1)) || trackMask.test(point.add(0,1,-1)) || trackMask.test(point.add(0,-1,-1))) ? 1 : 0) +
-						((trackMask.test(point.add(1,0,1)) || trackMask.test(point.add(1,1,1)) || trackMask.test(point.add(1,-1,1))) ? 1 : 0) +
-						((trackMask.test(point.add(1,0,-1)) || trackMask.test(point.add(1,1,-1)) || trackMask.test(point.add(1,-1,-1))) ? 1 : 0) +
-						((trackMask.test(point.add(-1,0,-1)) || trackMask.test(point.add(-1,1,-1)) || trackMask.test(point.add(-1,-1,-1))) ? 1 : 0) +
-						((trackMask.test(point.add(-1,0,1)) || trackMask.test(point.add(-1,1,1)) || trackMask.test(point.add(-1,-1,1))) ? 1 : 0);
+					boolean isOnEdge = !Functions.occludedByMask2D.test(point, trackMask);
 
 					BlockVector3 ceilingLocation = point.add(0, tunnelHeight + 1, 0);
-
-					boolean isOnEdge = neighbouringTrackBlocksCount < 8;
 					boolean isBelowTrack = trackMask.test(point.add(0, 1, 0));
 					boolean isTunnel = groundMask.test(ceilingLocation.add(BlockVector3.UNIT_Y));
 					boolean isTransition = !isTunnel && pointIsAdjacentTo(ceilingLocation.add(BlockVector3.UNIT_Y), groundMask);

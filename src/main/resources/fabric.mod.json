@@ -33,9 +33,10 @@
 		"minecraft": ">=1.19",
 		"java": ">=21",
 		"fabric-api": "*",
-		"worldedit": ">=7.2.12"
+		"worldedit": ">=7.2.12",
+		"mtr": ">=1.19.2-3.2.2-hotfix-1",
+		"msd": ">=1.19.2-3.2.2-1.3.4-enhancement-1"
 	},
 	"suggests": {
-		"mtr": "*"
 	}
 }

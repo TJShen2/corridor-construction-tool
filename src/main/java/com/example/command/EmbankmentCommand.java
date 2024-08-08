@@ -87,7 +87,7 @@ public class EmbankmentCommand {
 						if (isSurrounded) {
 							createColumn(point, maxHeight, replaceableBlockMask, embankmentMaterial, editSession, constants.getActor());
 						} else {
-							int[] edgeDirection = new int[]{
+							int[] edgeDirection = {
 									!trackMask.test(point.add(BlockVector3.UNIT_X)) ? 1 : 0,
 									!trackMask.test(point.add(BlockVector3.UNIT_Z)) ? 1 : 0,
 									!trackMask.test(point.add(BlockVector3.UNIT_MINUS_X)) ? 1 : 0,

@@ -18,7 +18,6 @@ import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 
 public class CorridorConstructionConstants {
-
   private final ServerPlayerEntity fabricPlayerEntity;
   private final Player actor;
   private final SessionManager manager;

@@ -11,13 +11,12 @@ import com.example.command.FencingCommand;
 import com.example.command.TunnelCommand;
 
 //TODO: create bridge pillars
-//TODO: create overhead line (requires integration with fencing design)
 
 public class CorridorConstructionTool implements ModInitializer {
 	// This logger is used to write text to the console and the log file.
 	// It is considered best practice to use your mod id as the logger's name.
 	// That way, it's clear which mod wrote info, warnings, and errors.
-    public static final Logger LOGGER = LoggerFactory.getLogger("CorridorConstructionTool");
+  public static final Logger LOGGER = LoggerFactory.getLogger("CorridorConstructionTool");
 
 	@Override
 	public void onInitialize() {
@@ -27,7 +26,7 @@ public class CorridorConstructionTool implements ModInitializer {
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> EmbankmentCommand.register(dispatcher));
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TunnelCommand.register(dispatcher));
-		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> FencingCommand.register(dispatcher));
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> FencingCommand.register(dispatcher, registryAccess));
 
 		LOGGER.info("Corridor construction tool has been initialized!");
 	}
