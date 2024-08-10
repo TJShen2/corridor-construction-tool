@@ -1,23 +1,24 @@
 package com.example.command;
 
 import com.example.CorridorConstructionConstants;
+import com.example.Functions;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
-
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
-import com.sk89q.worldedit.extension.factory.MaskFactory;
-import com.sk89q.worldedit.extension.factory.PatternFactory;
-import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.extension.platform.Actor;
 import com.sk89q.worldedit.function.mask.Mask;
-import com.sk89q.worldedit.function.mask.MaskIntersection;
-import com.sk89q.worldedit.function.mask.Masks;
 import com.sk89q.worldedit.function.pattern.Pattern;
+import com.sk89q.worldedit.internal.command.CommandArgParser;
+import com.sk89q.worldedit.internal.util.Substring;
 import com.sk89q.worldedit.math.BlockVector2;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.regions.CuboidRegion;
@@ -25,8 +26,12 @@ import com.sk89q.worldedit.regions.FlatRegion;
 import com.sk89q.worldedit.regions.Region;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import net.minecraft.server.command.ServerCommandSource;
+
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import static net.minecraft.server.command.CommandManager.*;
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
@@ -37,35 +42,46 @@ public class EmbankmentCommand {
   public static void register(CommandDispatcher<ServerCommandSource> dispatcher){
       dispatcher.register(literal("embankment")
           .requires(source -> source.hasPermissionLevel(2)) // Must be a game master to use the command. Command will not show up in tab completion or execute to non operators or any operator that is permission level 1.
-          .then(argument("trackMask", StringArgumentType.string())
-          .then(argument("embankmentMaterial", StringArgumentType.string())
 					.then(argument("maxHeight", IntegerArgumentType.integer())
 					.then(argument("grade", DoubleArgumentType.doubleArg())
-          .executes(ctx -> createEmbankment(ctx.getSource(), getString(ctx, "trackMask"), getString(ctx, "embankmentMaterial"), getInteger(ctx, "maxHeight"), getDouble(ctx, "grade")))))))); // You can deal with the arguments out here and pipe them into the command.
+					.then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests(new SuggestionProvider<ServerCommandSource>() {
+          @Override
+          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+            String input = Functions.safeGetArgument(context, "maskPatternInput", String.class);
+
+            if (input == null) {
+              return Suggestions.empty();
+            } else {
+              String currentInput = Arrays.asList(Arrays.asList(input.split(" ")).getLast().split(",")).getLast();
+              int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
+              List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
+
+              SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
+              suggestions.stream().forEach(e -> builder2.suggest(e));
+              return builder2.buildFuture();
+            }
+          }
+        })
+          .executes(ctx -> createEmbankment(ctx.getSource(), getInteger(ctx, "maxHeight"), getDouble(ctx, "grade"), getString(ctx, "maskPatternInput")))))));
   }
 
-  private static int createEmbankment(ServerCommandSource source, String trackMaskString, String embankmentMaterialString, int maxHeight, double grade) {
+  private static int createEmbankment(ServerCommandSource source, int maxHeight, double grade, String maskPatternInputString) {
 		CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
 
+		CommandArgParser argParser = CommandArgParser.forArgString(maskPatternInputString);
+    List<Substring> maskPatternArgs = argParser.parseArgs().toList();
+
+    // Verify input
+    if (maskPatternArgs.size() != 2) {
+      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
+    }
+
 		//Define masks and patterns
-		MaskFactory maskFactory = WorldEdit.getInstance().getMaskFactory();
-		PatternFactory patternFactory = WorldEdit.getInstance().getPatternFactory();
+    Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.getParserContext());
+    Pattern embankmentMaterial = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.getParserContext());
 
-		Mask trackMask;
-		Pattern embankmentMaterial;
-
-		Mask replaceableBlockMask;
-		Mask groundMask;
-
-		try {
-			trackMask = maskFactory.parseFromInput(trackMaskString, constants.getParserContext());
-			embankmentMaterial = patternFactory.parseFromInput(embankmentMaterialString, constants.getParserContext());
-			replaceableBlockMask = maskFactory.parseFromInput("##corridor_construction_tool:embankment_replaceable", constants.getParserContext());
-			groundMask = new MaskIntersection(maskFactory.parseFromInput("##corridor_construction_tool:natural", constants.getParserContext()), Masks.negate(maskFactory.parseFromInput("##corridor_construction_tool:natural_non_terrain", constants.getParserContext())));
-		} catch (InputParseException e) {
-			constants.getActor().printError(TextComponent.of("The mask and pattern arguments for the command /embankment may have been invalid\n" + e));
-			return 0;
-		}
+    Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:embankment_replaceable", constants.getParserContext());
+		Mask groundMask = Functions.groundMask.apply(constants.getParserContext());
 
 		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
 			//Set the mask for the blocks that may be replaced
@@ -85,7 +101,7 @@ public class EmbankmentCommand {
 						boolean isSurrounded = trackMask.test(point.add(BlockVector3.UNIT_X)) && trackMask.test(point.add(BlockVector3.UNIT_Z)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_X)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_Z));
 
 						if (isSurrounded) {
-							createColumn(point, maxHeight, replaceableBlockMask, embankmentMaterial, editSession, constants.getActor());
+							createColumn(point.subtract(BlockVector3.UNIT_Y), maxHeight, replaceableBlockMask, embankmentMaterial, editSession, constants.getActor());
 						} else {
 							int[] edgeDirection = {
 									!trackMask.test(point.add(BlockVector3.UNIT_X)) ? 1 : 0,

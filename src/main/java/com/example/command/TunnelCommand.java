@@ -7,22 +7,18 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
-import com.sk89q.worldedit.extension.factory.MaskFactory;
-import com.sk89q.worldedit.extension.factory.PatternFactory;
-import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.extension.platform.Actor;
-import com.sk89q.worldedit.extent.clipboard.Clipboard;
-import com.sk89q.worldedit.extent.clipboard.io.ClipboardFormat;
-import com.sk89q.worldedit.extent.clipboard.io.ClipboardFormats;
-import com.sk89q.worldedit.extent.clipboard.io.ClipboardReader;
 import com.sk89q.worldedit.function.mask.Mask;
-import com.sk89q.worldedit.function.mask.MaskIntersection;
-import com.sk89q.worldedit.function.mask.Masks;
-import com.sk89q.worldedit.function.pattern.ClipboardPattern;
 import com.sk89q.worldedit.function.pattern.Pattern;
+import com.sk89q.worldedit.internal.command.CommandArgParser;
+import com.sk89q.worldedit.internal.util.Substring;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BlockTypes;
@@ -31,9 +27,9 @@ import net.minecraft.server.command.ServerCommandSource;
 
 import static net.minecraft.server.command.CommandManager.*;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
@@ -45,65 +41,49 @@ public class TunnelCommand {
 				.requires(source -> source.hasPermissionLevel(2)) // Must be a game master to use the command. Command will not
 																													// show up in tab completion or execute to non operators or
 																													// any operator that is permission level 1.
-				.then(argument("trackMask", StringArgumentType.string())
-				.then(argument("tunnelMaterial", StringArgumentType.string())
 				.then(argument("tunnelHeight", IntegerArgumentType.integer())
 				.then(argument("withSchematic", BoolArgumentType.bool())
-				.executes(ctx -> createTunnel(ctx.getSource(), getString(ctx, "trackMask"),
-						getString(ctx, "tunnelMaterial"), getInteger(ctx, "tunnelHeight"), getBool(ctx, "withSchematic")))))))); // You can deal with
-																																																	// the arguments out
-																																																	// here and pipe them
-																																																	// into the command.
+				.then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests(new SuggestionProvider<ServerCommandSource>() {
+          @Override
+          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+            String input = Functions.safeGetArgument(context, "maskPatternInput", String.class);
+
+            if (input == null) {
+              return Suggestions.empty();
+            } else {
+              String currentInput = Arrays.asList(Arrays.asList(input.split(" ")).getLast().split(",")).getLast();
+              int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
+              List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
+
+              SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
+              suggestions.stream().forEach(e -> builder2.suggest(e));
+              return builder2.buildFuture();
+            }
+          }
+        })
+				.executes(ctx -> createTunnel(ctx.getSource(), getInteger(ctx, "tunnelHeight"), getBool(ctx, "withSchematic"), getString(ctx, "maskPatternInput")))))));
 	}
 
-	public static int createTunnel(ServerCommandSource source, String trackMaskString, String tunnelMaterialString,
-			int tunnelHeight, boolean withSchematic) {
+	public static int createTunnel(ServerCommandSource source, int tunnelHeight, boolean withSchematic, String maskPatternInputString) {
 		CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
 
 		// Define masks and patterns
-		MaskFactory maskFactory = WorldEdit.getInstance().getMaskFactory();
-		PatternFactory patternFactory = WorldEdit.getInstance().getPatternFactory();
+		CommandArgParser argParser = CommandArgParser.forArgString(maskPatternInputString);
+    List<Substring> maskPatternArgs = argParser.parseArgs().toList();
 
-		Mask trackMask;
-		Pattern tunnelMaterial;
+    // Verify input
+    if (maskPatternArgs.size() != 2) {
+      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
+    }
 
-		Mask replaceableBlockMask;
-		Mask groundMask;
-		Mask airMask;
+		//Define masks and patterns
+    Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.getParserContext());
+		Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:tunnel_replaceable", constants.getParserContext());
+		Mask airMask = Functions.airMask.apply(constants.getParserContext());
+		Mask groundMask = Functions.groundMask.apply(constants.getParserContext());
 
-		if (withSchematic) {
-    	Clipboard clipboard;
-
-			File schematicFile = constants.getSelectionWorld().getStoragePath().getParent().getParent().resolve("config/worldedit/schematics/" + tunnelMaterialString + ".schem").toFile();
-			ClipboardFormat format = ClipboardFormats.findByFile(schematicFile);
-			try {
-				try (ClipboardReader reader = format.getReader(new FileInputStream(schematicFile))) {
-						clipboard = reader.read();
-				}
-				tunnelMaterial = new ClipboardPattern(clipboard);
-			} catch (IOException e) {
-        constants.getActor().printError(TextComponent.of("Failed to load schematic: " + schematicFile.toString()));
-        return 0;
-      }
-		} else {
-			try {
-				tunnelMaterial = patternFactory.parseFromInput(tunnelMaterialString, constants.getParserContext());
-			} catch (InputParseException e) {
-				constants.getActor().printError(TextComponent.of("Failed to parse argument \"tunnelMaterial\""));
-				return 0;
-			}
-		}
-
-		try {
-			trackMask = maskFactory.parseFromInput(trackMaskString, constants.getParserContext());
-			replaceableBlockMask = maskFactory.parseFromInput("##corridor_construction_tool:tunnel_replaceable", constants.getParserContext());
-			airMask = maskFactory.parseFromInput("minecraft:air", constants.getParserContext());
-			groundMask = new MaskIntersection(maskFactory.parseFromInput("##corridor_construction_tool:natural", constants.getParserContext()), Masks.negate(maskFactory.parseFromInput("##corridor_construction_tool:natural_non_terrain", constants.getParserContext())));
-		} catch (InputParseException e) {
-			constants.getActor()
-					.printError(TextComponent.of("The mask and pattern arguments for the command /tunnel may have been invalid\n" + e));
-			return 0;
-		}
+		String tunnelMaterialString = maskPatternArgs.get(1).getSubstring();
+    Pattern tunnelMaterial = withSchematic ? Functions.patternFromSchematic.apply(constants.getSelectionWorld(), tunnelMaterialString) : Functions.safeParsePattern.apply(tunnelMaterialString, constants.getParserContext());
 
 		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
 			editSession.setMask(replaceableBlockMask);

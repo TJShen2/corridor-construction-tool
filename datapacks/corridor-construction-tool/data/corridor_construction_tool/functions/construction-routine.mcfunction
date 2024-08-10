@@ -7,8 +7,8 @@
 # Example:
 # The track bed material is smooth_stone.
 # Embankment is made of gravel, has a height of 5m, and a slope of 2H:1V.
-embankment smooth_stone gravel 5 0.5
+embankment 5 0.5 smooth_stone gravel
 # Tunnel is made of polished andesite and has a height ranging from 7-8m.
-tunnel smooth_stone polished_andesite 8
+tunnel 8 false smooth_stone polished_andesite
 # Fence is made of oak fence and has a height of 3m. Catenary is at a height of 8 and is gantry-mounted.
-fence smooth_stone white_concrete "polished_andesite" oak_fence 3 gantry_mounted polished_andesite 8 20 "6"
+fence 3 gantry_mounted 8 20 "6" smooth_stone white_concrete polished_andesite polished_andesite oak_fence

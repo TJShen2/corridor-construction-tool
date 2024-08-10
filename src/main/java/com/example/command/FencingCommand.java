@@ -1,8 +1,6 @@
 package com.example.command;
 
-import net.minecraft.block.BlockState;
 import net.minecraft.command.CommandRegistryAccess;
-import net.minecraft.command.argument.BlockStateArgumentType;
 import net.minecraft.server.command.ServerCommandSource;
 import static net.minecraft.server.command.CommandManager.*;
 
@@ -15,7 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
-
 import com.example.CorridorConstructionConstants;
 import com.example.Functions;
 import com.mojang.brigadier.Command;
@@ -30,23 +27,19 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
-import com.sk89q.worldedit.extension.factory.MaskFactory;
-import com.sk89q.worldedit.extension.input.InputParseException;
-import com.sk89q.worldedit.fabric.FabricAdapter;
-import com.sk89q.worldedit.function.mask.BlockMask;
 import com.sk89q.worldedit.function.mask.Mask;
 import com.sk89q.worldedit.function.mask.MaskUnion;
 import com.sk89q.worldedit.function.pattern.Pattern;
+import com.sk89q.worldedit.internal.command.CommandArgParser;
+import com.sk89q.worldedit.internal.util.Substring;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.Direction;
 import com.sk89q.worldedit.util.Direction.Flag;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
-import com.sk89q.worldedit.world.block.BaseBlock;
 import com.sk89q.worldedit.world.block.BlockType;
 import com.sk89q.worldedit.world.block.BlockTypes;
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
-import static net.minecraft.command.argument.BlockStateArgumentType.getBlockState;
 
 public class FencingCommand {
   public static void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess) {
@@ -54,30 +47,6 @@ public class FencingCommand {
         .requires(source -> source.hasPermissionLevel(2)) // Must be a game master to use the command. Command will not
                                                           // show up in tab completion or execute to non operators or
                                                           // any operator that is permission level 1.
-        .then(argument("trackMask", BlockStateArgumentType.blockState(registryAccess))
-        .then(argument("endMarkerMask", BlockStateArgumentType.blockState(registryAccess))
-        .then(argument("baseMask", StringArgumentType.string()).suggests(new SuggestionProvider<ServerCommandSource>() {
-          @Override
-          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
-            String input = safeGetArgument(context, "baseMask", String.class);
-
-            if (input == null || input.length() < 3) {
-              return Suggestions.empty();
-            } else {
-              input = input.charAt(0) == '\"' ? input.substring(1) : input;
-              input = input.charAt(input.length() - 1) == '\"' ? input.substring(0, input.length() - 2) : input;
-
-              String currentInput = Arrays.asList(input.split(",")).getLast();
-              int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
-              List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
-
-              SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
-              suggestions.stream().forEach(e -> builder2.suggest(e));
-              return builder2.buildFuture();
-            }
-          }
-        })
-        .then(argument("fencingMaterial", BlockStateArgumentType.blockState(registryAccess))
         .then(argument("fencingHeight", IntegerArgumentType.integer())
         .then(argument("catenaryType", StringArgumentType.word()).suggests(new SuggestionProvider<ServerCommandSource>() {
           @Override
@@ -89,30 +58,41 @@ public class FencingCommand {
             return builder.buildFuture();
           }
         })
-        .then(argument("poleBaseMaterial", BlockStateArgumentType.blockState(registryAccess))
         .then(argument("catenaryHeight", IntegerArgumentType.integer())
         .then(argument("poleSpacing", IntegerArgumentType.integer())
         .then(argument("trackPositions", StringArgumentType.string())
-            .executes(ctx -> createFencing(ctx.getSource(), getBlockState(ctx, "trackMask").getBlockState(), getBlockState(ctx, "endMarkerMask").getBlockState(), getString(ctx, "baseMask"),
-            getBlockState(ctx, "fencingMaterial").getBlockState(), getInteger(ctx, "fencingHeight"), getString(ctx, "catenaryType"), getBlockState(ctx, "poleBaseMaterial").getBlockState(), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "poleSpacing"), getString(ctx, "trackPositions"))))))))))))));
-            // You can deal with the arguments out here and pipe them into the command.
+
+        .then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests(new SuggestionProvider<ServerCommandSource>() {
+          @Override
+          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+            String input = Functions.safeGetArgument(context, "maskPatternInput", String.class);
+
+            if (input == null) {
+              return Suggestions.empty();
+            } else {
+              String currentInput = Arrays.asList(Arrays.asList(input.split(" ")).getLast().split(",")).getLast();
+              int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
+              List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
+
+              SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
+              suggestions.stream().forEach(e -> builder2.suggest(e));
+              return builder2.buildFuture();
+            }
+          }
+        })
+            .executes(ctx -> createFencing(ctx.getSource(), getInteger(ctx, "fencingHeight"), getString(ctx, "catenaryType"), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "poleSpacing"), getString(ctx, "trackPositions"), getString(ctx, "maskPatternInput"))))))))));
   }
 
-  private static <V> V safeGetArgument(CommandContext<ServerCommandSource> context, String name, Class<V> clazz) {
-    try {
-      return context.getArgument(name, clazz);
-    } catch (IllegalArgumentException e) {
-      return null;
-    }
-  }
-
-  private static int createFencing(ServerCommandSource source, BlockState trackMaterial, BlockState endMarkerMaterial, String baseMasksString, BlockState fencingMaterial,
-      int fencingHeight, String catenaryType, BlockState poleBaseMaterial, int catenaryHeight, int poleSpacing, String trackPositionsString) {
+  private static int createFencing(ServerCommandSource source, int fencingHeight, String catenaryType, int catenaryHeight, int poleSpacing, String trackPositionsString, String maskPatternInputString) {
     CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
 
+    CommandArgParser argParser = CommandArgParser.forArgString(maskPatternInputString);
+    List<Substring> maskPatternArgs = argParser.parseArgs().toList();
+
     // Verify input
-    // catenaryHeight >= fencingHeight is required
-    if (fencingHeight > catenaryHeight) {
+    if (maskPatternArgs.size() != 5) {
+      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
+    } else if (fencingHeight > catenaryHeight) {
       constants.getActor().printError(TextComponent.of("Fencing height cannot be greater than catenary height."));
       return 0;
     } else if (!(catenaryType.equals("constants") || catenaryType.equals("pole_mounted_single") || catenaryType.equals("pole_mounted_double") || catenaryType.equals("gantry_mounted"))) {
@@ -120,44 +100,28 @@ public class FencingCommand {
       return 0;
     }
 
+    Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.getParserContext());
+    Mask endMarkerMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(1).getSubstring(), constants.getParserContext());
+
+    // The block types that fencing will be placed on (other than the track blocks), which is usually the material of the retaining walls
+    Mask baseMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(2).getSubstring(), constants.getParserContext());
+
+    Pattern poleBasePattern = Functions.safeParsePattern.apply(maskPatternArgs.get(3).getSubstring(), constants.getParserContext());
+    Pattern fencingPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(4).getSubstring(), constants.getParserContext());
+
+    Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:fencing_replaceable", constants.getParserContext());
+
     Collection<String> trackPositionStrings = Arrays.asList(trackPositionsString.split(","));
     Collection<Integer> trackPositions = new ArrayList<>();
     trackPositionStrings.stream().forEach(e -> trackPositions.add(Integer.valueOf(e)));
 
     boolean includeCatenary = catenaryType != "none";
-    // Define masks
-    MaskFactory maskFactory = WorldEdit.getInstance().getMaskFactory();
-
-    List<Mask> baseMasks = new ArrayList<>();
-    Mask replaceableBlockMask;
-
     Map<Direction, List<BlockVector3>> poleLocationsByDirection = Map.of(Direction.EAST, new ArrayList<>(), Direction.WEST, new ArrayList<>(), Direction.NORTH, new ArrayList<>(), Direction.SOUTH, new ArrayList<>());
     List<BlockVector3> poleLocations = new ArrayList<>();
 
-    try {
-      // The block types that fencing will be placed on, which is usually the material
-      // of the track or the retaining walls
-      String[] baseMaskStrings = baseMasksString.split(",");
-      for (String baseMaskString : baseMaskStrings) {
-        baseMasks.add(maskFactory.parseFromInput(baseMaskString, constants.getParserContext()));
-      }
-
-      // Set the mask for the blocks that may be replaced
-      replaceableBlockMask = maskFactory.parseFromInput("##corridor_construction_tool:fencing_replaceable", constants.getParserContext());
-    } catch (InputParseException e) {
-      constants.getActor()
-          .printError(
-              TextComponent.of("The mask and pattern arguments for the command /fence may have been invalid. Individual masks in a mask union should be separated with a comma.\n" + e));
-      return 0;
-    }
-    Mask baseMask = new MaskUnion(baseMasks);
-
     try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
       // Define masks and patterns
-      Mask trackMask = new BlockMask(editSession, FabricAdapter.adapt(trackMaterial).toBaseBlock());
-      Mask endMarkerMask = new BlockMask(editSession, FabricAdapter.adapt(endMarkerMaterial).toBaseBlock());
-      BaseBlock poleBase = FabricAdapter.adapt(poleBaseMaterial).toBaseBlock();
-      BaseBlock fencing = FabricAdapter.adapt(fencingMaterial).toBaseBlock();
+
       editSession.setMask(replaceableBlockMask);
 
       // Provide feedback to user
@@ -182,7 +146,7 @@ public class FencingCommand {
         boolean isOnEdge = !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask));
         boolean isOnOuterEdge = !Functions.occludedByMaskCardinal.test(point, new MaskUnion(trackMask, endMarkerMask));
 
-        if (trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 320, baseMask) != 0 || isOnEdge)) {
+        if (trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), 320, baseMask) != point.getY() || isOnEdge)) {
           Map<Direction, Integer> numTrackBlocksByDirection = new HashMap<>();
           Direction.valuesOf(Flag.CARDINAL).stream().forEach(dir -> numTrackBlocksByDirection.put(dir, getTrackBlocksCount(point, editSession, trackMask, IntStream.range(1, 5).toArray(), dir)));
           Direction catenaryDirection = numTrackBlocksByDirection.entrySet().stream().max((a, b) -> a.getValue().compareTo(b.getValue())).get().getKey();
@@ -202,9 +166,9 @@ public class FencingCommand {
           try {
             if (includeCatenary && atAppropriateLocation && isOnOuterEdge && directionIsAllowed) {
               poleLocationsByDirection.get(catenaryDirection).add(point);
-              buildCatenaryWithFence(poleLocations, catenaryType, editSession, point, poleBase, fencing, catenaryDirection, oppositeToCatenaryDirection, catenaryHeight, trackMask, trackPositions, fencingHeight, baseMask, replaceableBlockMask);
+              buildCatenaryWithFence(poleLocations, catenaryType, editSession, point, poleBasePattern, fencingPattern, catenaryDirection, oppositeToCatenaryDirection, catenaryHeight, trackMask, trackPositions, fencingHeight, baseMask, replaceableBlockMask);
             } else if (!poleLocations.contains(point)) {
-              buildFence(editSession, point, fencingHeight, baseMask, replaceableBlockMask, fencing, true);
+              buildFence(editSession, point, fencingHeight, baseMask, replaceableBlockMask, fencingPattern, true);
             }
           } catch (MaxChangedBlocksException e) {
             constants.getActor().printError(e.getRichMessage());
@@ -242,21 +206,21 @@ public class FencingCommand {
     return trackBlocksCount;
   }
 
-  private static void buildCatenaryWithFence(List<BlockVector3> poleLocations, String catenaryType, EditSession editSession, BlockVector3 point, BaseBlock poleBase, BaseBlock fencing, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) throws MaxChangedBlocksException {
+  private static void buildCatenaryWithFence(List<BlockVector3> poleLocations, String catenaryType, EditSession editSession, BlockVector3 point, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) throws MaxChangedBlocksException {
     // Build pole
     BlockVector3 point2 = findOtherEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection);
     poleLocations.add(point);
     poleLocations.add(point2);
     int trackWidth = (int) point.distance(point2);
 
-    int heightReduction1 = buildPole(editSession, point, catenaryHeight, fencingHeight, baseMask, poleBase, catenaryDirection);
-    int heightReduction2 = buildPole(editSession, point2, catenaryHeight, fencingHeight, baseMask, poleBase, oppositeToCatenaryDirection);
+    int heightReduction1 = buildPole(editSession, point, catenaryHeight, fencingHeight, baseMask, poleBasePattern, catenaryDirection);
+    int heightReduction2 = buildPole(editSession, point2, catenaryHeight, fencingHeight, baseMask, poleBasePattern, oppositeToCatenaryDirection);
 
     BlockVector3 origin1 = point.add(0, catenaryHeight, 0);
     BlockVector3 origin2 = point2.add(0, catenaryHeight, 0);
 
-    buildFence(editSession, origin1.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction1), baseMask, replaceableBlockMask, fencing, false);
-    buildFence(editSession, origin2.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction2), baseMask, replaceableBlockMask, fencing, false);
+    buildFence(editSession, origin1.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction1), baseMask, replaceableBlockMask, fencingPattern, false);
+    buildFence(editSession, origin2.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction2), baseMask, replaceableBlockMask, fencingPattern, false);
 
     // Build racks and nodes
     // If catenary is gantry_mounted, also build a gantry
@@ -269,8 +233,8 @@ public class FencingCommand {
         buildNode(editSession, origin2, oppositeToCatenaryDirection, catenaryDirection);
         break;
       case "gantry_mounted":
-        buildGantry(editSession, origin1.add(BlockVector3.UNIT_Y), catenaryDirection, oppositeToCatenaryDirection, trackWidth, trackPositions);
-        buildGantry(editSession, origin2.add(BlockVector3.UNIT_Y), oppositeToCatenaryDirection, catenaryDirection, trackWidth, trackPositions);
+        buildGantry(editSession, origin1.add(BlockVector3.UNIT_Y), catenaryDirection, oppositeToCatenaryDirection, trackWidth, trackPositions, true);
+        buildGantry(editSession, origin2.add(BlockVector3.UNIT_Y), oppositeToCatenaryDirection, catenaryDirection, trackWidth, trackPositions, false);
         break;
     }
   }
@@ -311,7 +275,7 @@ public class FencingCommand {
     return catenaryHeight - (baseBlockHeight - point.getY());
   }
 
-  private static void buildFence(EditSession editSession, BlockVector3 point, int fencingHeight, Mask baseMask, Mask replaceableBlockMask, BaseBlock fencing, boolean applyHeightBonus) throws MaxChangedBlocksException {
+  private static void buildFence(EditSession editSession, BlockVector3 point, int fencingHeight, Mask baseMask, Mask replaceableBlockMask, Pattern fencingPattern, boolean applyHeightBonus) throws MaxChangedBlocksException {
     List<Integer> surroundingHeightMap = new ArrayList<>();
     IntStream.range(1, 5).forEach(i -> surroundingHeightMap.addAll(getSurroundingHeightMap(point, editSession, baseMask, i, 0, 320)));
 
@@ -322,7 +286,7 @@ public class FencingCommand {
     // If there is no ground above the base block, then build the fence
     if (replaceableBlockMask.test(baseBlock.add(BlockVector3.UNIT_Y))) {
       for (int i = 0; i < actualFencingHeight; i++) {
-        editSession.setBlock(baseBlock.add(0, i + 1, 0), fencing);
+        editSession.setBlock(baseBlock.add(0, i + 1, 0), fencingPattern);
       }
     }
   }
@@ -339,14 +303,14 @@ public class FencingCommand {
     editSession.setBlock(origin.add(catenaryDirection.toBlockVector().multiply(3)), catenaryNode.getState(Map.of(catenaryNode.getProperty("facing"), catenaryDirection, catenaryNode.getProperty("is_connected"), false)));
   }
 
-  private static void buildGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int trackWidth, Collection<Integer> trackPositions) throws MaxChangedBlocksException {
+  private static void buildGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int trackWidth, Collection<Integer> trackPositions, boolean includeNode) throws MaxChangedBlocksException {
     BlockType gantrySide = BlockTypes.get("msd:catenary_pole_top_side");
     BlockType gantryMiddle = BlockTypes.get("msd:catenary_pole_top_middle");
 
     editSession.setBlock(origin.add(catenaryDirection.toBlockVector()), gantrySide.getState(Map.of(gantrySide.getProperty("facing"), oppositeToCatenaryDirection)));
     for (int i = 2; i < trackWidth / 2 + 1; i++) {
       editSession.setBlock(origin.add(catenaryDirection.toBlockVector().multiply(i)), gantryMiddle.getState(Map.of(gantrySide.getProperty("facing"), catenaryDirection)));
-      if (trackPositions.contains(i)) {
+      if (trackPositions.contains(i) && includeNode) {
         buildNodeUnderGantry(editSession, origin.add(catenaryDirection.toBlockVector().multiply(i)), catenaryDirection, oppositeToCatenaryDirection);
       }
     }
