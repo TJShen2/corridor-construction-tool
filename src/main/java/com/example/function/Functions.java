@@ -1,4 +1,4 @@
-package com.example;
+package com.example.function;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -7,8 +7,8 @@ import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.stream.Stream;
-
 import com.mojang.brigadier.context.CommandContext;
+import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.extension.input.ParserContext;
@@ -24,6 +24,7 @@ import com.sk89q.worldedit.function.pattern.BlockPattern;
 import com.sk89q.worldedit.function.pattern.ClipboardPattern;
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;
+import com.sk89q.worldedit.util.Direction;
 import com.sk89q.worldedit.world.World;
 import com.sk89q.worldedit.world.block.BlockTypes;
 
@@ -68,21 +69,23 @@ public class Functions {
   };
 
 	public static final Function<ParserContext, Mask> airMask = (context) -> safeParseMaskUnion.apply("minecraft:air", context);
-	public static final Function<ParserContext, Mask> groundMask = (context) -> new MaskIntersection(safeParseMaskUnion.apply("##corridor_construction_tool:natural", context), Masks.negate(safeParseMaskUnion.apply("##corridor_construction_tool:natural_non_terrain", context)));
+	public static final BiFunction<Mask, ParserContext, Mask> groundMask = (trackMask, context) -> new MaskIntersection(safeParseMaskUnion.apply("##corridor_construction_tool:natural", context), Masks.negate(safeParseMaskUnion.apply("##corridor_construction_tool:natural_non_terrain", context)), Masks.negate(trackMask));
 
-	@SuppressWarnings("deprecation")
-	public static final BiFunction<World, String, Pattern> patternFromSchematic = (selectionWorld, schematicName) -> {
+	public static final BiFunction<World, String, Clipboard> clipboardFromSchematic = (selectionWorld, schematicName) -> {
 		File schematicFile = selectionWorld.getStoragePath().getParent().getParent().resolve("config/worldedit/schematics/" + schematicName + ".schem").toFile();
 		ClipboardFormat format = ClipboardFormats.findByFile(schematicFile);
 		try {
 			try (ClipboardReader reader = format.getReader(new FileInputStream(schematicFile))) {
-				Clipboard clipboard = reader.read();
-				return new ClipboardPattern(clipboard);
+				return reader.read();
 			}
 		} catch (IOException e) {
-			return new BlockPattern(BlockTypes.SMOOTH_QUARTZ.getDefaultState());
+			return null;
 		}
 	};
+
+	@SuppressWarnings("deprecation")
+	public static final Function<Clipboard, Pattern> patternFromClipboard = (clipboard) -> clipboard == null ? new BlockPattern(BlockTypes.SMOOTH_QUARTZ.getDefaultState()) : new ClipboardPattern(clipboard);
+	public static final BiFunction<World, String, Pattern> patternFromSchematic = clipboardFromSchematic.andThen(patternFromClipboard);
 
 	public static <V> V safeGetArgument(CommandContext<ServerCommandSource> context, String name, Class<V> clazz) {
     try {
@@ -90,5 +93,20 @@ public class Functions {
     } catch (IllegalArgumentException e) {
       return null;
     }
+  }
+
+	public static BlockVector3 findEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int searchDistance) {
+		if (searchDistance == 0) {
+			return null;
+		} else if (editSession.getHighestTerrainBlock(startPos.getX(), startPos.getZ(), startPos.getY() - 2, startPos.getY() + 1, mask) == startPos.getY() - 2) {
+      return startPos.subtract(dir.toBlockVector());
+    } else {
+      return findEdge(editSession, mask, startPos.add(dir.toBlockVector()), dir, searchDistance - 1);
+    }
+  }
+
+	public static Integer distanceToEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int searchDistance) {
+		BlockVector3 otherPos = findEdge(editSession, mask, startPos.add(dir.toBlockVector()), dir, searchDistance);
+		return otherPos == null ? null : (int) startPos.distance(otherPos);
   }
 }

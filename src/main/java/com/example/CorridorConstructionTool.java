@@ -1,16 +1,20 @@
 package com.example;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.ArgumentTypeRegistry;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.command.argument.serialize.ConstantArgumentSerializer;
+import net.minecraft.util.Identifier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.example.command.EmbankmentCommand;
 import com.example.command.FencingCommand;
+import com.example.command.PillarCommand;
 import com.example.command.TunnelCommand;
-
-//TODO: create bridge pillars
+import com.example.command.argument.CatenaryTypeArgumentType;
+import com.example.command.argument.PillarOrientationArgumentType;
 
 public class CorridorConstructionTool implements ModInitializer {
 	// This logger is used to write text to the console and the log file.
@@ -24,9 +28,13 @@ public class CorridorConstructionTool implements ModInitializer {
 		// However, some things (like resources) may still be uninitialized.
 		// Proceed with mild caution.
 
+		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "catenary_type"), CatenaryTypeArgumentType.class, ConstantArgumentSerializer.of(CatenaryTypeArgumentType::catenaryType));
+		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "pillar_orientation"), PillarOrientationArgumentType.class, ConstantArgumentSerializer.of(PillarOrientationArgumentType::orientation));
+
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> EmbankmentCommand.register(dispatcher));
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TunnelCommand.register(dispatcher));
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> FencingCommand.register(dispatcher, registryAccess));
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> PillarCommand.register(dispatcher));
 
 		LOGGER.info("Corridor construction tool has been initialized!");
 	}

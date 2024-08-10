@@ -14,7 +14,8 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 import com.example.CorridorConstructionConstants;
-import com.example.Functions;
+import com.example.command.argument.CatenaryTypeArgumentType;
+import com.example.function.Functions;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -38,26 +39,32 @@ import com.sk89q.worldedit.util.Direction.Flag;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BlockType;
 import com.sk89q.worldedit.world.block.BlockTypes;
+
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
+import static com.example.command.argument.CatenaryTypeArgumentType.getCatenaryType;
+import static com.example.command.FencingCommand.CatenaryType.*;
 
 public class FencingCommand {
+  public enum CatenaryType {
+    NONE, POLE_MOUNTED_SINGLE, POLE_MOUNTED_DOUBLE, GANTRY_MOUNTED;
+
+    public static CatenaryType fromString(String input) {
+      try {
+        return (CatenaryType) CatenaryType.class.getField(input.toUpperCase()).get(null);
+      } catch (NoSuchFieldException|IllegalAccessException e) {
+        return NONE;
+      }
+    }
+  }
+
   public static void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess) {
     dispatcher.register(literal("fence")
         .requires(source -> source.hasPermissionLevel(2)) // Must be a game master to use the command. Command will not
                                                           // show up in tab completion or execute to non operators or
                                                           // any operator that is permission level 1.
         .then(argument("fencingHeight", IntegerArgumentType.integer())
-        .then(argument("catenaryType", StringArgumentType.word()).suggests(new SuggestionProvider<ServerCommandSource>() {
-          @Override
-          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
-            builder.suggest("none");
-            builder.suggest("pole_mounted_single");
-            builder.suggest("pole_mounted_double");
-            builder.suggest("gantry_mounted");
-            return builder.buildFuture();
-          }
-        })
+        .then(argument("catenaryType", CatenaryTypeArgumentType.catenaryType())
         .then(argument("catenaryHeight", IntegerArgumentType.integer())
         .then(argument("poleSpacing", IntegerArgumentType.integer())
         .then(argument("trackPositions", StringArgumentType.string())
@@ -80,10 +87,10 @@ public class FencingCommand {
             }
           }
         })
-            .executes(ctx -> createFencing(ctx.getSource(), getInteger(ctx, "fencingHeight"), getString(ctx, "catenaryType"), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "poleSpacing"), getString(ctx, "trackPositions"), getString(ctx, "maskPatternInput"))))))))));
+            .executes(ctx -> createFencing(ctx.getSource(), getInteger(ctx, "fencingHeight"), getCatenaryType(ctx, "catenaryType"), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "poleSpacing"), getString(ctx, "trackPositions"), getString(ctx, "maskPatternInput"))))))))));
   }
 
-  private static int createFencing(ServerCommandSource source, int fencingHeight, String catenaryType, int catenaryHeight, int poleSpacing, String trackPositionsString, String maskPatternInputString) {
+  private static int createFencing(ServerCommandSource source, int fencingHeight, CatenaryType catenaryType, int catenaryHeight, int poleSpacing, String trackPositionsString, String maskPatternInputString) {
     CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
 
     CommandArgParser argParser = CommandArgParser.forArgString(maskPatternInputString);
@@ -95,7 +102,7 @@ public class FencingCommand {
     } else if (fencingHeight > catenaryHeight) {
       constants.getActor().printError(TextComponent.of("Fencing height cannot be greater than catenary height."));
       return 0;
-    } else if (!(catenaryType.equals("constants") || catenaryType.equals("pole_mounted_single") || catenaryType.equals("pole_mounted_double") || catenaryType.equals("gantry_mounted"))) {
+    } else if (!(catenaryType.equals(NONE) || catenaryType.equals(POLE_MOUNTED_SINGLE) || catenaryType.equals(POLE_MOUNTED_DOUBLE) || catenaryType.equals(GANTRY_MOUNTED))) {
       constants.getActor().printError(TextComponent.of("\"" + catenaryType + "\"" + " is not a valid catenary type. Please enter \"none\", \"pole_mounted_single\", \"pole_mounted_double\", or \"gantry_mounted\"."));
       return 0;
     }
@@ -115,23 +122,22 @@ public class FencingCommand {
     Collection<Integer> trackPositions = new ArrayList<>();
     trackPositionStrings.stream().forEach(e -> trackPositions.add(Integer.valueOf(e)));
 
-    boolean includeCatenary = catenaryType != "none";
+    boolean includeCatenary = !catenaryType.equals(NONE);
     Map<Direction, List<BlockVector3>> poleLocationsByDirection = Map.of(Direction.EAST, new ArrayList<>(), Direction.WEST, new ArrayList<>(), Direction.NORTH, new ArrayList<>(), Direction.SOUTH, new ArrayList<>());
     List<BlockVector3> poleLocations = new ArrayList<>();
 
     try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
-      // Define masks and patterns
-
+      // Set mask
       editSession.setMask(replaceableBlockMask);
+
+      // Catenaries will only be constructed from one side, so we need to store the data of which side the catenaries are constructed from
+      Direction allowedXDirection = null;
+      Direction allowedZDirection = null;
 
       // Provide feedback to user
       int blocksEvaluated = 0;
       long regionSize = constants.getSelectedRegion().getVolume();
       constants.getActor().printInfo(TextComponent.of("Creating fencing..."));
-
-      // Catenaries will only be constructed from one side, so we need to store the data of which side the catenaries are constructed from
-      Direction allowedXDirection = null;
-      Direction allowedZDirection = null;
 
       // Place fences on the edges of bridges and embankments and on the retaining walls
       // Loop through all blocks in selection but only operate on track blocks that have a base block on top of them or are on edge
@@ -206,9 +212,11 @@ public class FencingCommand {
     return trackBlocksCount;
   }
 
-  private static void buildCatenaryWithFence(List<BlockVector3> poleLocations, String catenaryType, EditSession editSession, BlockVector3 point, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) throws MaxChangedBlocksException {
+  private static void buildCatenaryWithFence(List<BlockVector3> poleLocations, CatenaryType catenaryType, EditSession editSession, BlockVector3 point, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) throws MaxChangedBlocksException {
     // Build pole
-    BlockVector3 point2 = findOtherEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection);
+    BlockVector3 point2 = Functions.findEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection, 100);
+    point2 = point2 == null ? point : point2;
+
     poleLocations.add(point);
     poleLocations.add(point2);
     int trackWidth = (int) point.distance(point2);
@@ -225,25 +233,19 @@ public class FencingCommand {
     // Build racks and nodes
     // If catenary is gantry_mounted, also build a gantry
     switch (catenaryType) {
-      case "pole_mounted_single":
+      case NONE:
+        break;
+      case POLE_MOUNTED_SINGLE:
         buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection);
         break;
-      case "pole_mounted_double":
+      case POLE_MOUNTED_DOUBLE:
         buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection);
         buildNode(editSession, origin2, oppositeToCatenaryDirection, catenaryDirection);
         break;
-      case "gantry_mounted":
+      case GANTRY_MOUNTED:
         buildGantry(editSession, origin1.add(BlockVector3.UNIT_Y), catenaryDirection, oppositeToCatenaryDirection, trackWidth, trackPositions, true);
         buildGantry(editSession, origin2.add(BlockVector3.UNIT_Y), oppositeToCatenaryDirection, catenaryDirection, trackWidth, trackPositions, false);
         break;
-    }
-  }
-
-  private static BlockVector3 findOtherEdge(EditSession editSession, Mask mask, BlockVector3 edge, Direction dir) {
-    if (editSession.getHighestTerrainBlock(edge.getX(), edge.getZ(), edge.getY() - 2, edge.getY() + 1, mask) == edge.getY() - 2) {
-      return edge.subtract(dir.toBlockVector());
-    } else {
-      return findOtherEdge(editSession, mask, edge.add(dir.toBlockVector()), dir);
     }
   }
 

@@ -1,7 +1,8 @@
 package com.example.command;
 
 import com.example.CorridorConstructionConstants;
-import com.example.Functions;
+import com.example.function.Functions;
+import com.example.mask.UndergroundMask;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
@@ -16,6 +17,8 @@ import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.extension.platform.Actor;
 import com.sk89q.worldedit.function.mask.Mask;
+import com.sk89q.worldedit.function.mask.MaskIntersection;
+import com.sk89q.worldedit.function.mask.Masks;
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.internal.command.CommandArgParser;
 import com.sk89q.worldedit.internal.util.Substring;
@@ -73,19 +76,20 @@ public class EmbankmentCommand {
 
     // Verify input
     if (maskPatternArgs.size() != 2) {
-      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
+      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][embankmentPattern]."));
     }
 
 		//Define masks and patterns
     Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.getParserContext());
-    Pattern embankmentMaterial = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.getParserContext());
+    Pattern embankmentPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.getParserContext());
 
     Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:embankment_replaceable", constants.getParserContext());
-		Mask groundMask = Functions.groundMask.apply(constants.getParserContext());
+		Mask groundMask = Functions.groundMask.apply(trackMask, constants.getParserContext());
 
 		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
 			//Set the mask for the blocks that may be replaced
-			editSession.setMask(replaceableBlockMask);
+      Mask undergroundMask = new UndergroundMask(editSession, groundMask, 5);
+      editSession.setMask(new MaskIntersection(replaceableBlockMask, Masks.negate(undergroundMask)));
 
 			//Provide feedback to user
 			int blocksEvaluated = 0;
@@ -101,7 +105,7 @@ public class EmbankmentCommand {
 						boolean isSurrounded = trackMask.test(point.add(BlockVector3.UNIT_X)) && trackMask.test(point.add(BlockVector3.UNIT_Z)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_X)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_Z));
 
 						if (isSurrounded) {
-							createColumn(point.subtract(BlockVector3.UNIT_Y), maxHeight, replaceableBlockMask, embankmentMaterial, editSession, constants.getActor());
+							createColumn(point.subtract(BlockVector3.UNIT_Y), maxHeight, replaceableBlockMask, embankmentPattern, editSession, constants.getActor());
 						} else {
 							int[] edgeDirection = {
 									!trackMask.test(point.add(BlockVector3.UNIT_X)) ? 1 : 0,
@@ -110,7 +114,7 @@ public class EmbankmentCommand {
 									!trackMask.test(point.add(BlockVector3.UNIT_MINUS_Z)) ? 1 : 0
 							};
 							Region slopeRegion = new CuboidRegion(editSession.getWorld(), point.subtract(width * edgeDirection[2], 0, width * edgeDirection[3]), point.add(width * edgeDirection[0], 0, width * edgeDirection[1]));
-							createSlope(point, maxHeight, replaceableBlockMask, embankmentMaterial, editSession, constants.getActor(), (FlatRegion) slopeRegion, grade);
+							createSlope(point, maxHeight, replaceableBlockMask, embankmentPattern, editSession, constants.getActor(), (FlatRegion) slopeRegion, grade);
 						}
 					}
 				}

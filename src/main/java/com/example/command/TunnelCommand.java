@@ -1,7 +1,7 @@
 package com.example.command;
 
 import com.example.CorridorConstructionConstants;
-import com.example.Functions;
+import com.example.function.Functions;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
@@ -73,17 +73,17 @@ public class TunnelCommand {
 
     // Verify input
     if (maskPatternArgs.size() != 2) {
-      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
+      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][tunnelPattern]."));
     }
 
 		//Define masks and patterns
     Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.getParserContext());
 		Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:tunnel_replaceable", constants.getParserContext());
 		Mask airMask = Functions.airMask.apply(constants.getParserContext());
-		Mask groundMask = Functions.groundMask.apply(constants.getParserContext());
+		Mask groundMask = Functions.groundMask.apply(trackMask, constants.getParserContext());
 
-		String tunnelMaterialString = maskPatternArgs.get(1).getSubstring();
-    Pattern tunnelMaterial = withSchematic ? Functions.patternFromSchematic.apply(constants.getSelectionWorld(), tunnelMaterialString) : Functions.safeParsePattern.apply(tunnelMaterialString, constants.getParserContext());
+		String tunnelPatternString = maskPatternArgs.get(1).getSubstring();
+    Pattern tunnelPattern = withSchematic ? Functions.patternFromSchematic.apply(constants.getSelectionWorld(), tunnelPatternString) : Functions.safeParsePattern.apply(tunnelPatternString, constants.getParserContext());
 
 		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
 			editSession.setMask(replaceableBlockMask);
@@ -122,7 +122,7 @@ public class TunnelCommand {
 							for (int i = 0; i < tunnelHeight; i++) {
 								BlockVector3 wallBlock = point.add(0, i + 1, 0);
 								try {
-									editSession.setBlock(wallBlock, tunnelMaterial);
+									editSession.setBlock(wallBlock, tunnelPattern);
 								} catch (MaxChangedBlocksException e) {
 									constants.getActor().printError(TextComponent.of(e.toString()));
 								}
@@ -133,13 +133,13 @@ public class TunnelCommand {
 						}
 						// Tunnel ceiling
 						try {
-							editSession.setBlock(ceilingLocation, tunnelMaterial);
+							editSession.setBlock(ceilingLocation, tunnelPattern);
 						} catch (MaxChangedBlocksException e) {
 							constants.getActor().printError(TextComponent.of(e.toString()));
 						}
 						if (isBelowTrack) {
 							try {
-								editSession.setBlock(ceilingLocation.subtract(0, 1, 0), tunnelMaterial);
+								editSession.setBlock(ceilingLocation.subtract(0, 1, 0), tunnelPattern);
 							} catch (MaxChangedBlocksException e) {
 								constants.getActor().printError(TextComponent.of(e.toString()));
 							}
@@ -155,7 +155,7 @@ public class TunnelCommand {
 
 								if (wallBlockTouchingGround) {
 									try {
-										editSession.setBlock(wallBlock, tunnelMaterial);
+										editSession.setBlock(wallBlock, tunnelPattern);
 									} catch (MaxChangedBlocksException e) {
 										constants.getActor().printError(TextComponent.of(e.toString()));
 									}
@@ -170,7 +170,7 @@ public class TunnelCommand {
 						if (isTransition) {
 							// Tunnel-cutting transition
 							try {
-								editSession.setBlock(ceilingLocation, tunnelMaterial);
+								editSession.setBlock(ceilingLocation, tunnelPattern);
 							} catch (MaxChangedBlocksException e) {
 								constants.getActor().printError(TextComponent.of(e.toString()));
 							}
@@ -183,7 +183,7 @@ public class TunnelCommand {
 
 								if (replaceableBlockMask.test(wallBlock) && wallBlockTouchingGround) {
 									try {
-										editSession.setBlock(wallBlock, tunnelMaterial);
+										editSession.setBlock(wallBlock, tunnelPattern);
 									} catch (MaxChangedBlocksException e) {
 										constants.getActor().printError(TextComponent.of(e.toString()));
 									}
