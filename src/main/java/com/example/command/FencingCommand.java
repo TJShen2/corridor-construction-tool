@@ -26,6 +26,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
@@ -43,7 +44,6 @@ import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BaseBlock;
 import com.sk89q.worldedit.world.block.BlockType;
 import com.sk89q.worldedit.world.block.BlockTypes;
-
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
 import static net.minecraft.command.argument.BlockStateArgumentType.getBlockState;
@@ -56,7 +56,27 @@ public class FencingCommand {
                                                           // any operator that is permission level 1.
         .then(argument("trackMask", BlockStateArgumentType.blockState(registryAccess))
         .then(argument("endMarkerMask", BlockStateArgumentType.blockState(registryAccess))
-        .then(argument("baseMask", StringArgumentType.string())
+        .then(argument("baseMask", StringArgumentType.string()).suggests(new SuggestionProvider<ServerCommandSource>() {
+          @Override
+          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
+            String input = safeGetArgument(context, "baseMask", String.class);
+
+            if (input == null || input.length() < 3) {
+              return Suggestions.empty();
+            } else {
+              input = input.charAt(0) == '\"' ? input.substring(1) : input;
+              input = input.charAt(input.length() - 1) == '\"' ? input.substring(0, input.length() - 2) : input;
+
+              String currentInput = Arrays.asList(input.split(",")).getLast();
+              int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
+              List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
+
+              SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
+              suggestions.stream().forEach(e -> builder2.suggest(e));
+              return builder2.buildFuture();
+            }
+          }
+        })
         .then(argument("fencingMaterial", BlockStateArgumentType.blockState(registryAccess))
         .then(argument("fencingHeight", IntegerArgumentType.integer())
         .then(argument("catenaryType", StringArgumentType.word()).suggests(new SuggestionProvider<ServerCommandSource>() {
@@ -76,6 +96,14 @@ public class FencingCommand {
             .executes(ctx -> createFencing(ctx.getSource(), getBlockState(ctx, "trackMask").getBlockState(), getBlockState(ctx, "endMarkerMask").getBlockState(), getString(ctx, "baseMask"),
             getBlockState(ctx, "fencingMaterial").getBlockState(), getInteger(ctx, "fencingHeight"), getString(ctx, "catenaryType"), getBlockState(ctx, "poleBaseMaterial").getBlockState(), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "poleSpacing"), getString(ctx, "trackPositions"))))))))))))));
             // You can deal with the arguments out here and pipe them into the command.
+  }
+
+  private static <V> V safeGetArgument(CommandContext<ServerCommandSource> context, String name, Class<V> clazz) {
+    try {
+      return context.getArgument(name, clazz);
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
   }
 
   private static int createFencing(ServerCommandSource source, BlockState trackMaterial, BlockState endMarkerMaterial, String baseMasksString, BlockState fencingMaterial,
