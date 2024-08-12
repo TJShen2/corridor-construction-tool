@@ -7,13 +7,17 @@ import static net.minecraft.server.command.CommandManager.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
 import com.example.CorridorConstructionConstants;
+import com.example.SetBlockOperation;
 import com.example.command.argument.CatenaryTypeArgumentType;
 import com.example.function.Functions;
 import com.mojang.brigadier.Command;
@@ -24,10 +28,10 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
-
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
+import com.sk89q.worldedit.extension.platform.Actor;
 import com.sk89q.worldedit.function.mask.Mask;
 import com.sk89q.worldedit.function.mask.MaskUnion;
 import com.sk89q.worldedit.function.pattern.Pattern;
@@ -91,6 +95,8 @@ public class FencingCommand {
   }
 
   private static int createFencing(ServerCommandSource source, int fencingHeight, CatenaryType catenaryType, int catenaryHeight, int poleSpacing, String trackPositionsString, String maskPatternInputString) {
+    long startTime = System.currentTimeMillis();
+
     CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
 
     CommandArgParser argParser = CommandArgParser.forArgString(maskPatternInputString);
@@ -99,6 +105,7 @@ public class FencingCommand {
     // Verify input
     if (maskPatternArgs.size() != 5) {
       constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
+      return 0;
     } else if (fencingHeight > catenaryHeight) {
       constants.getActor().printError(TextComponent.of("Fencing height cannot be greater than catenary height."));
       return 0;
@@ -126,70 +133,71 @@ public class FencingCommand {
     Map<Direction, List<BlockVector3>> poleLocationsByDirection = Map.of(Direction.EAST, new ArrayList<>(), Direction.WEST, new ArrayList<>(), Direction.NORTH, new ArrayList<>(), Direction.SOUTH, new ArrayList<>());
     List<BlockVector3> poleLocations = new ArrayList<>();
 
+    // Catenaries will only be constructed from one side, so we need to store the data of which side the catenaries are constructed from
+    Direction allowedXDirection = Direction.WEST;
+    Direction allowedZDirection = Direction.NORTH;
+
     try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
+      // Place fences on the edges of bridges and embankments and on the retaining walls
+      // Create a stream that generates the blocks that need to be modified
+
+      Stream<SetBlockOperation> operations = StreamSupport.stream(constants.getSelectedRegion().spliterator(), false).filter(point -> trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), 320, baseMask) != point.getY() || !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask)))).map(point -> {
+        boolean isOnOuterEdge = !Functions.occludedByMaskCardinal.test(point, new MaskUnion(trackMask, endMarkerMask));
+
+        Map<Direction, Integer> numTrackBlocksByDirection = Direction.valuesOf(Flag.CARDINAL).stream().collect(Collectors.toUnmodifiableMap(Function.identity(), dir -> getTrackBlocksCount(point, editSession, trackMask, IntStream.range(1, 5).toArray(), dir)));
+        Direction catenaryDirection = numTrackBlocksByDirection.entrySet().stream().max((a, b) -> a.getValue().compareTo(b.getValue())).get().getKey();
+        Direction oppositeToCatenaryDirection = Direction.findClosest(catenaryDirection.toVector().multiply(-1), Flag.CARDINAL);
+
+        boolean atAppropriateLocation = poleLocationsByDirection.get(catenaryDirection).isEmpty() ? true : point.distance(poleLocationsByDirection.get(catenaryDirection).getLast()) >= poleSpacing;
+        boolean directionIsAllowed = allowedXDirection == catenaryDirection || allowedZDirection == catenaryDirection;
+
+        // If includeCatenary is true, then build the catenary
+        if (includeCatenary && atAppropriateLocation && isOnOuterEdge && directionIsAllowed) {
+          poleLocationsByDirection.get(catenaryDirection).add(point);
+          return buildCatenaryWithFence(poleLocations, catenaryType, editSession, point, poleBasePattern, fencingPattern, catenaryDirection, oppositeToCatenaryDirection, catenaryHeight, trackMask, trackPositions, fencingHeight, baseMask, replaceableBlockMask);
+        } else if (!poleLocations.contains(point)) {
+          return buildFence(editSession, point, fencingHeight, baseMask, replaceableBlockMask, fencingPattern, true);
+        } else {
+          return Stream.<SetBlockOperation>empty();
+        }
+      }).flatMap(Function.identity());
+
       // Set mask
       editSession.setMask(replaceableBlockMask);
 
-      // Catenaries will only be constructed from one side, so we need to store the data of which side the catenaries are constructed from
-      Direction allowedXDirection = null;
-      Direction allowedZDirection = null;
-
-      // Provide feedback to user
+      // Set up feedback system
       int blocksEvaluated = 0;
-      long regionSize = constants.getSelectedRegion().getVolume();
+      final long regionSize = constants.getSelectedRegion().getVolume();
       constants.getActor().printInfo(TextComponent.of("Creating fencing..."));
 
-      // Place fences on the edges of bridges and embankments and on the retaining walls
-      // Loop through all blocks in selection but only operate on track blocks that have a base block on top of them or are on edge
-      for (BlockVector3 point : constants.getSelectedRegion()) {
-        // Provide feedback to user
-        blocksEvaluated++;
-        if (blocksEvaluated % 50000 == 0) {
-          constants.getActor()
-              .printInfo(TextComponent.of(Math.round(100 * blocksEvaluated / regionSize) + "% complete"));
+      // Do the actual modification
+      operations.forEach(op -> {
+        try {
+          editSession.setBlock(op.point(), op.pattern());
+          showFeedback(blocksEvaluated, regionSize, constants.getActor());
+        } catch (MaxChangedBlocksException e) {
+          constants.getActor().printError(e.getRichMessage());
         }
+      });
 
-        boolean isOnEdge = !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask));
-        boolean isOnOuterEdge = !Functions.occludedByMaskCardinal.test(point, new MaskUnion(trackMask, endMarkerMask));
-
-        if (trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), 320, baseMask) != point.getY() || isOnEdge)) {
-          Map<Direction, Integer> numTrackBlocksByDirection = new HashMap<>();
-          Direction.valuesOf(Flag.CARDINAL).stream().forEach(dir -> numTrackBlocksByDirection.put(dir, getTrackBlocksCount(point, editSession, trackMask, IntStream.range(1, 5).toArray(), dir)));
-          Direction catenaryDirection = numTrackBlocksByDirection.entrySet().stream().max((a, b) -> a.getValue().compareTo(b.getValue())).get().getKey();
-          Direction oppositeToCatenaryDirection = Direction.findClosest(catenaryDirection.toVector().multiply(-1), Flag.CARDINAL);
-
-          boolean atAppropriateLocation = poleLocationsByDirection.get(catenaryDirection).isEmpty() ? true : point.distance(poleLocationsByDirection.get(catenaryDirection).getLast()) >= poleSpacing;
-
-          // Update allowedXDirection and allowedZDirection and perform check
-          if ((catenaryDirection.equals(Direction.WEST) || catenaryDirection.equals(Direction.EAST)) && allowedXDirection == null) {
-            allowedXDirection = catenaryDirection;
-          } else if ((catenaryDirection.equals(Direction.NORTH) || catenaryDirection.equals(Direction.SOUTH)) && allowedZDirection == null) {
-            allowedZDirection = catenaryDirection;
-          }
-          boolean directionIsAllowed = allowedXDirection == catenaryDirection || allowedZDirection == catenaryDirection;
-
-          // If includeCatenary is true, then build the catenary
-          try {
-            if (includeCatenary && atAppropriateLocation && isOnOuterEdge && directionIsAllowed) {
-              poleLocationsByDirection.get(catenaryDirection).add(point);
-              buildCatenaryWithFence(poleLocations, catenaryType, editSession, point, poleBasePattern, fencingPattern, catenaryDirection, oppositeToCatenaryDirection, catenaryHeight, trackMask, trackPositions, fencingHeight, baseMask, replaceableBlockMask);
-            } else if (!poleLocations.contains(point)) {
-              buildFence(editSession, point, fencingHeight, baseMask, replaceableBlockMask, fencingPattern, true);
-            }
-          } catch (MaxChangedBlocksException e) {
-            constants.getActor().printError(e.getRichMessage());
-          }
-        }
-      }
-
+      long finishTime = System.currentTimeMillis();
       constants.getActor().printInfo(TextComponent.of("Fencing successfully created."));
-      constants.getActor().printInfo(TextComponent.of(editSession.getBlockChangeCount() + " blocks were changed."));
+      constants.getActor().printInfo(TextComponent.of(editSession.getBlockChangeCount() + " blocks were changed in " + (finishTime - startTime) + " ms."));
       constants.getLocalSession().remember(editSession);
+      return Command.SINGLE_SUCCESS;
     }
-    return Command.SINGLE_SUCCESS;
   }
-  private static List<Integer> getSurroundingHeightMap(BlockVector3 point, EditSession editSession, Mask baseMask, int distance, int minY, int maxY) {
-    return List.of(editSession.getHighestTerrainBlock(point.getX() + distance, point.getZ() + distance, 0, 320, baseMask),
+
+  private static void showFeedback(int blocksEvaluated, long regionSize, Actor actor) {
+    // Provide feedback to user
+    blocksEvaluated++;
+    if (blocksEvaluated % 50000 == 0) {
+      actor.printInfo(TextComponent.of(Math.round(100 * blocksEvaluated / regionSize) + "% complete"));
+    }
+  }
+
+  private static IntStream getSurroundingHeightMap(BlockVector3 point, EditSession editSession, Mask baseMask, int distance, int minY, int maxY) {
+    return IntStream.of(editSession.getHighestTerrainBlock(point.getX() + distance, point.getZ() + distance, 0, 320, baseMask),
         editSession.getHighestTerrainBlock(point.getX() + distance, point.getZ() - distance, minY, maxY, baseMask),
         editSession.getHighestTerrainBlock(point.getX() - distance, point.getZ() - distance, minY, maxY, baseMask),
         editSession.getHighestTerrainBlock(point.getX() - distance, point.getZ() + distance, minY, maxY, baseMask),
@@ -212,7 +220,7 @@ public class FencingCommand {
     return trackBlocksCount;
   }
 
-  private static void buildCatenaryWithFence(List<BlockVector3> poleLocations, CatenaryType catenaryType, EditSession editSession, BlockVector3 point, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) throws MaxChangedBlocksException {
+  private static Stream<SetBlockOperation> buildCatenaryWithFence(List<BlockVector3> poleLocations, CatenaryType catenaryType, EditSession editSession, BlockVector3 point, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) {
     // Build pole
     BlockVector3 point2 = Functions.findEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection, 100);
     point2 = point2 == null ? point : point2;
@@ -221,41 +229,35 @@ public class FencingCommand {
     poleLocations.add(point2);
     int trackWidth = (int) point.distance(point2);
 
-    int heightReduction1 = buildPole(editSession, point, catenaryHeight, fencingHeight, baseMask, poleBasePattern, catenaryDirection);
-    int heightReduction2 = buildPole(editSession, point2, catenaryHeight, fencingHeight, baseMask, poleBasePattern, oppositeToCatenaryDirection);
+    int baseBlockHeight1 = Math.max(point.getY(), editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 255, baseMask));
+    int baseBlockHeight2 = Math.max(point2.getY(), editSession.getHighestTerrainBlock(point2.getX(), point2.getZ(), 0, 255, baseMask));
+
+    int heightReduction1 = catenaryHeight - (baseBlockHeight1 - point.getY());
+    int heightReduction2 = catenaryHeight - (baseBlockHeight2 - point.getY());
 
     BlockVector3 origin1 = point.add(0, catenaryHeight, 0);
     BlockVector3 origin2 = point2.add(0, catenaryHeight, 0);
 
-    buildFence(editSession, origin1.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction1), baseMask, replaceableBlockMask, fencingPattern, false);
-    buildFence(editSession, origin2.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction2), baseMask, replaceableBlockMask, fencingPattern, false);
+    return Stream.of(buildPole(editSession, point, catenaryHeight, fencingHeight, baseBlockHeight1, baseMask, poleBasePattern, catenaryDirection),
+        buildPole(editSession, point2, catenaryHeight, fencingHeight, baseBlockHeight2, baseMask, poleBasePattern, oppositeToCatenaryDirection),
+        buildFence(editSession, origin1.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction1), baseMask, replaceableBlockMask, fencingPattern, false),
+        buildFence(editSession, origin2.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction2), baseMask, replaceableBlockMask, fencingPattern, false),
 
-    // Build racks and nodes
-    // If catenary is gantry_mounted, also build a gantry
-    switch (catenaryType) {
-      case NONE:
-        break;
-      case POLE_MOUNTED_SINGLE:
-        buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection);
-        break;
-      case POLE_MOUNTED_DOUBLE:
-        buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection);
-        buildNode(editSession, origin2, oppositeToCatenaryDirection, catenaryDirection);
-        break;
-      case GANTRY_MOUNTED:
-        buildGantry(editSession, origin1.add(BlockVector3.UNIT_Y), catenaryDirection, oppositeToCatenaryDirection, trackWidth, trackPositions, true);
-        buildGantry(editSession, origin2.add(BlockVector3.UNIT_Y), oppositeToCatenaryDirection, catenaryDirection, trackWidth, trackPositions, false);
-        break;
-    }
+        // Build racks and nodes
+        // If catenary is gantry_mounted, also build a gantry
+        switch (catenaryType) {
+          case NONE -> Stream.<SetBlockOperation>empty();
+          case POLE_MOUNTED_SINGLE -> buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection);
+          case POLE_MOUNTED_DOUBLE -> Stream.concat(buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection), buildNode(editSession, origin2, oppositeToCatenaryDirection, catenaryDirection));
+          case GANTRY_MOUNTED -> Stream.concat(buildGantry(editSession, origin1.add(BlockVector3.UNIT_Y), catenaryDirection, oppositeToCatenaryDirection, trackWidth, trackPositions, true), buildGantry(editSession, origin2.add(BlockVector3.UNIT_Y), oppositeToCatenaryDirection, catenaryDirection, trackWidth, trackPositions, false));
+        }).flatMap(Function.identity());
   }
 
-  private static int buildPole(EditSession editSession, BlockVector3 point, int catenaryHeight, int fencingHeight, Mask baseMask, Pattern poleBase, Direction catenaryDirection) throws MaxChangedBlocksException {
-    List<Integer> surroundingHeightMap = new ArrayList<>();
-    IntStream.range(1, 5).forEach(i -> surroundingHeightMap.addAll(getSurroundingHeightMap(point, editSession, baseMask, i, 0, 320)));
+  private static Stream<SetBlockOperation> buildPole(EditSession editSession, BlockVector3 point, int catenaryHeight, int fencingHeight, int baseBlockHeight, Mask baseMask, Pattern poleBase, Direction catenaryDirection) {
+    IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, 0, 320));
 
-    int baseBlockHeight = Math.max(point.getY(), editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 255, baseMask));
     BlockVector3 baseBlock = BlockVector3.at(point.getX(), baseBlockHeight, point.getZ());
-    int fencingHeightBonus = Math.max(baseBlockHeight, Collections.max(surroundingHeightMap)) - baseBlock.getY();
+    int fencingHeightBonus = Math.max(baseBlockHeight, surroundingHeightMap.max().getAsInt()) - baseBlock.getY();
     int actualFencingHeight = fencingHeight + fencingHeightBonus;
 
     BlockType pole = BlockTypes.get("msd:catenary_pole");
@@ -263,71 +265,51 @@ public class FencingCommand {
     // Build pole base and pole
     // If baseBlock is above point, then build pole base all the way past catenaryHeight and increase baseBlock Y coordinate so that fencing is built higher
     // Otherwise, only build pole base up to fencingHeight, include a rack pole, and continue in order to prevent fencing from overwriting pole base.
-    for (int i = 0; i < catenaryHeight + 1; i++) {
-      BlockVector3 block = point.add(0, i + 1, 0);
-
-      if (baseBlockHeight > point.getY() || i < actualFencingHeight) {
-        editSession.setBlock(block, poleBase);
-      } else {
-        editSession.setBlock(block, pole.getState(Map.of(pole.getProperty("facing"), catenaryDirection)));
-      }
-    }
-
-    // Return the difference between the catenaryHeight and baseBlock height (is greater than 0)
-    return catenaryHeight - (baseBlockHeight - point.getY());
+    return IntStream.range(0, catenaryHeight + 1).mapToObj(i -> baseBlockHeight > point.getY() || i < actualFencingHeight ? new SetBlockOperation(point.add(0, i + 1, 0), poleBase) : new SetBlockOperation(point.add(0, i + 1, 0), pole.getState(Map.of(pole.getProperty("facing"), catenaryDirection))));
   }
 
-  private static void buildFence(EditSession editSession, BlockVector3 point, int fencingHeight, Mask baseMask, Mask replaceableBlockMask, Pattern fencingPattern, boolean applyHeightBonus) throws MaxChangedBlocksException {
-    List<Integer> surroundingHeightMap = new ArrayList<>();
-    IntStream.range(1, 5).forEach(i -> surroundingHeightMap.addAll(getSurroundingHeightMap(point, editSession, baseMask, i, 0, 320)));
+  private static Stream<SetBlockOperation> buildFence(EditSession editSession, BlockVector3 point, int fencingHeight, Mask baseMask, Mask replaceableBlockMask, Pattern fencingPattern, boolean applyHeightBonus) {
+    IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, 0, 320));
 
     int baseBlockHeight = Math.max(point.getY(), editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 255, baseMask));
     BlockVector3 baseBlock = BlockVector3.at(point.getX(), baseBlockHeight, point.getZ());
-    int actualFencingHeight = applyHeightBonus ? fencingHeight + (Math.max(baseBlockHeight, Collections.max(surroundingHeightMap)) - baseBlock.getY()) : fencingHeight;
+    int actualFencingHeight = applyHeightBonus ? fencingHeight + (Math.max(baseBlockHeight, surroundingHeightMap.max().getAsInt()) - baseBlock.getY()) : fencingHeight;
 
     // If there is no ground above the base block, then build the fence
-    if (replaceableBlockMask.test(baseBlock.add(BlockVector3.UNIT_Y))) {
-      for (int i = 0; i < actualFencingHeight; i++) {
-        editSession.setBlock(baseBlock.add(0, i + 1, 0), fencingPattern);
-      }
-    }
+    return replaceableBlockMask.test(baseBlock.add(BlockVector3.UNIT_Y)) ? IntStream.range(0, actualFencingHeight).mapToObj(i -> new SetBlockOperation(baseBlock.add(0, i + 1, 0), fencingPattern)) : Stream.empty();
   }
 
-  private static void buildNode(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) throws MaxChangedBlocksException {
+  private static Stream<SetBlockOperation> buildNode(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) {
     BlockType catenaryRack1 = BlockTypes.get("msd:catenary_rack_1");
     BlockType catenaryRack2 = BlockTypes.get("msd:catenary_rack_2");
     BlockType catenaryNode = BlockTypes.get("msd:catenary_node");
     BlockType rackPole = BlockTypes.get("msd:catenary_rack_pole");
 
-    editSession.setBlock(origin, rackPole.getState(Map.of(rackPole.getProperty("facing"), oppositeToCatenaryDirection)));
-    editSession.setBlock(origin.add(catenaryDirection.toBlockVector()), catenaryRack2.getState(Map.of(catenaryRack2.getProperty("facing"), oppositeToCatenaryDirection)));
-    editSession.setBlock(origin.add(catenaryDirection.toBlockVector().multiply(2)), catenaryRack1.getState(Map.of(catenaryRack1.getProperty("facing"), oppositeToCatenaryDirection)));
-    editSession.setBlock(origin.add(catenaryDirection.toBlockVector().multiply(3)), catenaryNode.getState(Map.of(catenaryNode.getProperty("facing"), catenaryDirection, catenaryNode.getProperty("is_connected"), false)));
+    return Stream.of(new SetBlockOperation(origin, rackPole.getState(Map.of(rackPole.getProperty("facing"), oppositeToCatenaryDirection))),
+        new SetBlockOperation(origin.add(catenaryDirection.toBlockVector()), catenaryRack2.getState(Map.of(catenaryRack2.getProperty("facing"), oppositeToCatenaryDirection))),
+        new SetBlockOperation(origin.add(catenaryDirection.toBlockVector().multiply(2)), catenaryRack1.getState(Map.of(catenaryRack1.getProperty("facing"), oppositeToCatenaryDirection))),
+        new SetBlockOperation(origin.add(catenaryDirection.toBlockVector().multiply(3)), catenaryNode.getState(Map.of(catenaryNode.getProperty("facing"), catenaryDirection, catenaryNode.getProperty("is_connected"), false))));
   }
 
-  private static void buildGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int trackWidth, Collection<Integer> trackPositions, boolean includeNode) throws MaxChangedBlocksException {
+  private static Stream<SetBlockOperation> buildGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int trackWidth, Collection<Integer> trackPositions, boolean includeNode) {
     BlockType gantrySide = BlockTypes.get("msd:catenary_pole_top_side");
     BlockType gantryMiddle = BlockTypes.get("msd:catenary_pole_top_middle");
 
-    editSession.setBlock(origin.add(catenaryDirection.toBlockVector()), gantrySide.getState(Map.of(gantrySide.getProperty("facing"), oppositeToCatenaryDirection)));
-    for (int i = 2; i < trackWidth / 2 + 1; i++) {
-      editSession.setBlock(origin.add(catenaryDirection.toBlockVector().multiply(i)), gantryMiddle.getState(Map.of(gantrySide.getProperty("facing"), catenaryDirection)));
-      if (trackPositions.contains(i) && includeNode) {
-        buildNodeUnderGantry(editSession, origin.add(catenaryDirection.toBlockVector().multiply(i)), catenaryDirection, oppositeToCatenaryDirection);
-      }
-    }
+    return Stream.of(Stream.of(new SetBlockOperation(origin.add(catenaryDirection.toBlockVector()), gantrySide.getState(Map.of(gantrySide.getProperty("facing"), oppositeToCatenaryDirection)))),
+        IntStream.range(2, trackWidth / 2 + 1).mapToObj(i -> new SetBlockOperation(origin.add(catenaryDirection.toBlockVector().multiply(i)), gantryMiddle.getState(Map.of(gantrySide.getProperty("facing"), catenaryDirection)))),
+        IntStream.range(2, trackWidth / 2 + 1).filter(i -> includeNode && trackPositions.contains(i)).mapToObj(i -> buildNodeUnderGantry(editSession, origin.add(catenaryDirection.toBlockVector().multiply(i)), catenaryDirection, oppositeToCatenaryDirection)).flatMap(Function.identity())).flatMap(Function.identity());
   }
 
-  private static void buildNodeUnderGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) throws MaxChangedBlocksException {
+  private static Stream<SetBlockOperation> buildNodeUnderGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) {
     BlockType shortCatenaryRackBothSide = BlockTypes.get("msd:short_catenary_rack_both_side");
     BlockType shortCatenaryRack = BlockTypes.get("msd:short_catenary_rack");
     BlockType shortCatenaryNode = BlockTypes.get("msd:short_catenary_node");
 
     BlockVector3 rackLocation = origin.subtract(0, 2, 0);
-    editSession.setBlock(rackLocation, shortCatenaryRackBothSide.getState(Map.of(shortCatenaryRackBothSide.getProperty("facing"), catenaryDirection)));
-    editSession.setBlock(rackLocation.add(catenaryDirection.toBlockVector()), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), oppositeToCatenaryDirection)));
-    editSession.setBlock(rackLocation.add(catenaryDirection.toBlockVector().multiply(-1)), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), catenaryDirection)));
-    editSession.setBlock(rackLocation.add(catenaryDirection.toBlockVector().multiply(2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), catenaryDirection, shortCatenaryNode.getProperty("is_connected"), false)));
-    editSession.setBlock(rackLocation.add(catenaryDirection.toBlockVector().multiply(-2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), oppositeToCatenaryDirection, shortCatenaryNode.getProperty("is_connected"), false)));
+    return Stream.of(new SetBlockOperation(rackLocation, shortCatenaryRackBothSide.getState(Map.of(shortCatenaryRackBothSide.getProperty("facing"), catenaryDirection))),
+        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector()), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), oppositeToCatenaryDirection))),
+        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector().multiply(-1)), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), catenaryDirection))),
+        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector().multiply(2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), catenaryDirection, shortCatenaryNode.getProperty("is_connected"), false))),
+        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector().multiply(-2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), oppositeToCatenaryDirection, shortCatenaryNode.getProperty("is_connected"), false))));
   }
 }

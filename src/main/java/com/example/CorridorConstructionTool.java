@@ -22,6 +22,8 @@ public class CorridorConstructionTool implements ModInitializer {
 	// That way, it's clear which mod wrote info, warnings, and errors.
   public static final Logger LOGGER = LoggerFactory.getLogger("CorridorConstructionTool");
 
+	// TODO: Help/documentation in-game or on the web
+
 	@Override
 	public void onInitialize() {
 		// This code runs as soon as Minecraft is in a mod-load-ready state.
