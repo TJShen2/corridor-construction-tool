@@ -17,59 +17,36 @@ import com.sk89q.worldedit.world.World;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 
-public class CorridorConstructionConstants {
-  private final ServerPlayerEntity fabricPlayerEntity;
-  private final Player actor;
-  private final SessionManager manager;
-  private final LocalSession localSession;
-  private final World selectionWorld;
-  private final Region selectedRegion;
-  private final ParserContext parserContext = new ParserContext();
-
-  public ServerPlayerEntity getFabricPlayerEntity() {
-    return this.fabricPlayerEntity;
-  }
-
-  public Player getActor() {
-    return this.actor;
-  }
-
-  public SessionManager getManager() {
-    return this.manager;
-  }
-
-  public LocalSession getLocalSession() {
-    return this.localSession;
-  }
-
-  public World getSelectionWorld() {
-    return this.selectionWorld;
-  }
-
-  public Region getSelectedRegion() {
-    return this.selectedRegion;
-  }
-
-  public ParserContext getParserContext() {
-    return this.parserContext;
-  }
-
-  public CorridorConstructionConstants(ServerCommandSource source) {
-    fabricPlayerEntity = source.getPlayer();
-    actor = FabricAdapter.adaptPlayer(fabricPlayerEntity);
-    manager = WorldEdit.getInstance().getSessionManager();
-    localSession = manager.get(actor);
-    selectionWorld = localSession.getSelectionWorld();
-    selectedRegion = getSelection(actor, localSession, selectionWorld);
+/**
+ * This record contains useful data that can be derived from a ServerCommandSource.
+ * @author TJ Shen
+ * @version 1.0.0
+ */
+public record CorridorConstructionConstants(ServerPlayerEntity fabricPlayerEntity, Player actor, SessionManager manager, LocalSession localSession, World selectionWorld, Region selectedRegion, ParserContext parserContext) {
+  /**
+   * Create a new instance from a ServerCommandSource.
+   * @param source the ServerCommandSource instance to use for creating this instance
+   * @return
+   */
+  public static CorridorConstructionConstants of(ServerCommandSource source) {
+    ServerPlayerEntity fabricPlayerEntity = source.getPlayer();
+    Player actor = FabricAdapter.adaptPlayer(fabricPlayerEntity);
+    SessionManager manager = WorldEdit.getInstance().getSessionManager();
+    LocalSession localSession = manager.get(actor);
+    World selectionWorld = localSession.getSelectionWorld();
+    Region selectedRegion = getSelection(actor, localSession, selectionWorld);
 
     //Initialise parserContext
+    ParserContext parserContext = new ParserContext();
     parserContext.setExtent(new SideEffectExtent(selectionWorld));
     parserContext.setSession(localSession);
     parserContext.setWorld(selectionWorld);
     parserContext.setActor(actor);
+
+    return new CorridorConstructionConstants(fabricPlayerEntity, actor, manager, localSession, selectionWorld, selectedRegion, parserContext);
   }
 
-  public Region getSelection(Player actor, LocalSession localSession, World selectionWorld) {
+  private static Region getSelection(Player actor, LocalSession localSession, World selectionWorld) {
     try {
       if (selectionWorld == null) throw new IncompleteRegionException();
       return localSession.getSelection(selectionWorld);

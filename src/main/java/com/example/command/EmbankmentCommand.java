@@ -41,7 +41,17 @@ import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
 import static com.mojang.brigadier.arguments.DoubleArgumentType.getDouble;
 
+/**
+ * This class represents a brigadier command that creates an embankment below a track bed using the WorldEdit API.
+ * Embankment construction is dynamic: the height of the embankment changes based on the height of the surrounding terrain, and an embankment will not be constructed if the height difference is too large.
+ * @author TJ Shen
+ * @version 1.0.0
+*/
 public class EmbankmentCommand {
+	/**
+   * Registers the command with brigadier.
+   * @param dispatcher the dispatcher used to register the command
+  */
   public static void register(CommandDispatcher<ServerCommandSource> dispatcher){
       dispatcher.register(literal("embankment")
           .requires(source -> source.hasPermissionLevel(2)) // Must be a game master to use the command. Command will not show up in tab completion or execute to non operators or any operator that is permission level 1.
@@ -68,35 +78,45 @@ public class EmbankmentCommand {
           .executes(ctx -> createEmbankment(ctx.getSource(), getInteger(ctx, "maxHeight"), getDouble(ctx, "grade"), getString(ctx, "maskPatternInput")))))));
   }
 
-  private static int createEmbankment(ServerCommandSource source, int maxHeight, double grade, String maskPatternInputString) {
-		CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
+	/**
+	 * Creates an embankment below a track bed within the player's region selection.
+	 * @param source the command source that this command is being run from
+	 * @param maxHeight the maximum height below the track where the embankment may extend, in metres
+	 * @param grade the grade (or slope) of the sides of the embankment
+	 * @param maskPatternInputString contains the following arguments, in order, separated by a space:
+	 * trackMask: a mask containing the block(s) the track bed is made of
+	 * embankmentPattern: a pattern representing the block(s) the embankment will be constructed with
+	 * @return 0 if the construction failed, 1 if the construction succeeded
+	 */
+  public static int createEmbankment(ServerCommandSource source, int maxHeight, double grade, String maskPatternInputString) {
+		CorridorConstructionConstants constants = CorridorConstructionConstants.of(source);
 
 		CommandArgParser argParser = CommandArgParser.forArgString(maskPatternInputString);
     List<Substring> maskPatternArgs = argParser.parseArgs().toList();
 
     // Verify input
     if (maskPatternArgs.size() != 2) {
-      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][embankmentPattern]."));
+      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][embankmentPattern]."));
     }
 
 		//Define masks and patterns
-    Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.getParserContext());
-    Pattern embankmentPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.getParserContext());
+    Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.parserContext());
+    Pattern embankmentPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.parserContext());
 
-    Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:embankment_replaceable", constants.getParserContext());
-		Mask groundMask = Functions.groundMask.apply(trackMask, constants.getParserContext());
+    Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:embankment_replaceable", constants.parserContext());
+		Mask groundMask = Functions.groundMask.apply(trackMask, constants.parserContext());
 
-		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
+		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.actor())) {
 			//Set the mask for the blocks that may be replaced
       Mask undergroundMask = new UndergroundMask(editSession, groundMask, 5);
       editSession.setMask(new MaskIntersection(replaceableBlockMask, Masks.negate(undergroundMask)));
 
 			//Provide feedback to user
 			int blocksEvaluated = 0;
-			long regionSize = constants.getSelectedRegion().getVolume();
-			constants.getActor().printInfo(TextComponent.of("Creating embankment..."));
+			long regionSize = constants.selectedRegion().getVolume();
+			constants.actor().printInfo(TextComponent.of("Creating embankment..."));
 
-			for (BlockVector3 point : constants.getSelectedRegion()) {
+			for (BlockVector3 point : constants.selectedRegion()) {
 				if (trackMask.test(point)) {
 					int width = (int) Math.round(maxHeight / grade);
 					Region heightTestRegion = new CuboidRegion(editSession.getWorld(), point.subtract(width, 0, width), point.add(width, 0, width));
@@ -105,7 +125,7 @@ public class EmbankmentCommand {
 						boolean isSurrounded = trackMask.test(point.add(BlockVector3.UNIT_X)) && trackMask.test(point.add(BlockVector3.UNIT_Z)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_X)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_Z));
 
 						if (isSurrounded) {
-							createColumn(point.subtract(BlockVector3.UNIT_Y), maxHeight, replaceableBlockMask, embankmentPattern, editSession, constants.getActor());
+							createColumn(point.subtract(BlockVector3.UNIT_Y), maxHeight, replaceableBlockMask, embankmentPattern, editSession, constants.actor());
 						} else {
 							int[] edgeDirection = {
 									!trackMask.test(point.add(BlockVector3.UNIT_X)) ? 1 : 0,
@@ -114,19 +134,19 @@ public class EmbankmentCommand {
 									!trackMask.test(point.add(BlockVector3.UNIT_MINUS_Z)) ? 1 : 0
 							};
 							Region slopeRegion = new CuboidRegion(editSession.getWorld(), point.subtract(width * edgeDirection[2], 0, width * edgeDirection[3]), point.add(width * edgeDirection[0], 0, width * edgeDirection[1]));
-							createSlope(point, maxHeight, replaceableBlockMask, embankmentPattern, editSession, constants.getActor(), (FlatRegion) slopeRegion, grade);
+							createSlope(point, maxHeight, replaceableBlockMask, embankmentPattern, editSession, constants.actor(), (FlatRegion) slopeRegion, grade);
 						}
 					}
 				}
 				blocksEvaluated++;
 				if (blocksEvaluated % 50000 == 0) {
-						constants.getActor().printInfo(TextComponent.of(String.valueOf(Math.round(100 * blocksEvaluated / regionSize)).concat("% complete")));
+						constants.actor().printInfo(TextComponent.of(String.valueOf(Math.round(100 * blocksEvaluated / regionSize)).concat("% complete")));
 				}
 			}
 
-			constants.getActor().printInfo(TextComponent.of("Embankment successfully created."));
-			constants.getActor().printInfo(TextComponent.of(String.valueOf(editSession.getBlockChangeCount()).concat(" blocks were changed.")));
-			constants.getLocalSession().remember(editSession);
+			constants.actor().printInfo(TextComponent.of("Embankment successfully created."));
+			constants.actor().printInfo(TextComponent.of(String.valueOf(editSession.getBlockChangeCount()).concat(" blocks were changed.")));
+			constants.localSession().remember(editSession);
 		}
 		return Command.SINGLE_SUCCESS; // Success
 	}

@@ -1,6 +1,5 @@
 package com.example.command;
 
-import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.command.ServerCommandSource;
 import static net.minecraft.server.command.CommandManager.*;
 
@@ -49,10 +48,38 @@ import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
 import static com.example.command.argument.CatenaryTypeArgumentType.getCatenaryType;
 import static com.example.command.FencingCommand.CatenaryType.*;
 
+/**
+ * This class represents a brigadier command that creates a fence beside the track and (optionally) an electrical system above the track using the WorldEdit API.
+ * @author TJ Shen
+ * @version 1.0.0
+*/
 public class FencingCommand {
+  /**
+   * Represents the different catenary designs that this command permits.
+   */
   public enum CatenaryType {
-    NONE, POLE_MOUNTED_SINGLE, POLE_MOUNTED_DOUBLE, GANTRY_MOUNTED;
+    /**
+     * No catenary will be built.
+     */
+    NONE,
+    /**
+     * The catenary racks and nodes will be mounted on poles on one side of the track.
+     */
+    POLE_MOUNTED_SINGLE,
+    /**
+     * The catenary racks and nodes will be mounted on poles on both sides of the track.
+     */
+    POLE_MOUNTED_DOUBLE,
+    /**
+     * The catenary racks and nodes will be mounted on a gantry overhanging the track.
+     */
+    GANTRY_MOUNTED;
 
+    /**
+     * Produces a CatenaryType instance from a string
+     * @param input the string to parse into a CatenaryType
+     * @return the field of CatenaryType with the same name as the input, or NONE if the input string does not match the name of any field of CatenaryType
+     */
     public static CatenaryType fromString(String input) {
       try {
         return (CatenaryType) CatenaryType.class.getField(input.toUpperCase()).get(null);
@@ -62,7 +89,11 @@ public class FencingCommand {
     }
   }
 
-  public static void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess) {
+  /**
+   * Registers the command with brigadier.
+   * @param dispatcher the dispatcher used to register the command
+   */
+  public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
     dispatcher.register(literal("fence")
         .requires(source -> source.hasPermissionLevel(2)) // Must be a game master to use the command. Command will not
                                                           // show up in tab completion or execute to non operators or
@@ -70,7 +101,7 @@ public class FencingCommand {
         .then(argument("fencingHeight", IntegerArgumentType.integer())
         .then(argument("catenaryType", CatenaryTypeArgumentType.catenaryType())
         .then(argument("catenaryHeight", IntegerArgumentType.integer())
-        .then(argument("poleSpacing", IntegerArgumentType.integer())
+        .then(argument("nodeSpacing", IntegerArgumentType.integer())
         .then(argument("normalTrackWidth", IntegerArgumentType.integer())
         .then(argument("trackPositions", StringArgumentType.string())
 
@@ -92,39 +123,54 @@ public class FencingCommand {
             }
           }
         })
-            .executes(ctx -> createFencing(ctx.getSource(), getInteger(ctx, "fencingHeight"), getCatenaryType(ctx, "catenaryType"), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "normalTrackWidth"), getInteger(ctx, "poleSpacing"), getString(ctx, "trackPositions"), getString(ctx, "maskPatternInput")))))))))));
+            .executes(ctx -> createFencing(ctx.getSource(), getInteger(ctx, "fencingHeight"), getCatenaryType(ctx, "catenaryType"), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "normalTrackWidth"), getInteger(ctx, "nodeSpacing"), getString(ctx, "trackPositions"), getString(ctx, "maskPatternInput")))))))))));
   }
 
-  private static int createFencing(ServerCommandSource source, int fencingHeight, CatenaryType catenaryType, int catenaryHeight, int normalTrackWidth, int poleSpacing, String trackPositionsString, String maskPatternInputString) {
+  /**
+   * Creates a fence beside the track and (optionally) an electrical system above the track.
+   * @param source the command source that this command is being run from
+   * @param fencingHeight the height of the fencing on flat ground, in metres
+   * @param catenaryType the catenary design to use
+   * @param catenaryHeight the clearance available above the track bed to construct the catenaries, in metres
+   * @param normalTrackWidth the width of the track bed on tangent (straight) sections, in metres
+   * @param nodeSpacing the minimum distance between the catenary nodes, in metres
+   * @param trackPositionsString a comma-separated list of integers representing the location of the tracks relative to the edges of the track bed, in metres
+   * @param maskPatternInputString contains the following arguments, in order, separated by a space:
+   * trackMask: a mask containing the block(s) the track bed is made of
+   * endMarkerMask: a mask containing the block(s) used to mark the ends of the track
+   * baseMask: a mask containing the block(s) that fencing will be placed on, in addition to the track blocks
+   * poleBasePattern: the pattern representing the block(s) used to build the base for the catenary poles
+   * fencingPattern: the pattern representing the block(s) used to build the fence
+   * @return 0 if the construction failed, 1 if the construction succeeded
+   */
+  public static int createFencing(ServerCommandSource source, int fencingHeight, CatenaryType catenaryType, int catenaryHeight, int normalTrackWidth, int nodeSpacing, String trackPositionsString, String maskPatternInputString) {
     long startTime = System.currentTimeMillis();
 
-    CorridorConstructionConstants constants = new CorridorConstructionConstants(source);
+    CorridorConstructionConstants constants = CorridorConstructionConstants.of(source);
 
     CommandArgParser argParser = CommandArgParser.forArgString(maskPatternInputString);
     List<Substring> maskPatternArgs = argParser.parseArgs().toList();
 
     // Verify input
     if (maskPatternArgs.size() != 5) {
-      constants.getActor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
+      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][endMarkerMask][baseMask][poleBasePattern][fencingPattern]."));
       return 0;
     } else if (fencingHeight > catenaryHeight) {
-      constants.getActor().printError(TextComponent.of("Fencing height cannot be greater than catenary height."));
+      constants.actor().printError(TextComponent.of("Fencing height cannot be greater than catenary height."));
       return 0;
     } else if (!(catenaryType.equals(NONE) || catenaryType.equals(POLE_MOUNTED_SINGLE) || catenaryType.equals(POLE_MOUNTED_DOUBLE) || catenaryType.equals(GANTRY_MOUNTED))) {
-      constants.getActor().printError(TextComponent.of("\"" + catenaryType + "\"" + " is not a valid catenary type. Please enter \"none\", \"pole_mounted_single\", \"pole_mounted_double\", or \"gantry_mounted\"."));
+      constants.actor().printError(TextComponent.of("\"" + catenaryType + "\"" + " is not a valid catenary type. Please enter \"none\", \"pole_mounted_single\", \"pole_mounted_double\", or \"gantry_mounted\"."));
       return 0;
     }
 
-    Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.getParserContext());
-    Mask endMarkerMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(1).getSubstring(), constants.getParserContext());
+    Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.parserContext());
+    Mask endMarkerMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(1).getSubstring(), constants.parserContext());
+    Mask baseMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(2).getSubstring(), constants.parserContext());
 
-    // The block types that fencing will be placed on (other than the track blocks), which is usually the material of the retaining walls
-    Mask baseMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(2).getSubstring(), constants.getParserContext());
+    Pattern poleBasePattern = Functions.safeParsePattern.apply(maskPatternArgs.get(3).getSubstring(), constants.parserContext());
+    Pattern fencingPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(4).getSubstring(), constants.parserContext());
 
-    Pattern poleBasePattern = Functions.safeParsePattern.apply(maskPatternArgs.get(3).getSubstring(), constants.getParserContext());
-    Pattern fencingPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(4).getSubstring(), constants.getParserContext());
-
-    Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:fencing_replaceable", constants.getParserContext());
+    Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:fencing_replaceable", constants.parserContext());
 
     List<String> trackPositionStrings = Arrays.asList(trackPositionsString.split(","));
     List<Integer> normalTrackPositions = trackPositionStrings.stream().map(e -> Integer.valueOf(e)).toList();
@@ -136,18 +182,18 @@ public class FencingCommand {
     Direction allowedXDirection = Direction.WEST;
     Direction allowedZDirection = Direction.NORTH;
 
-    try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.getActor())) {
+    try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.actor())) {
       // Place fences on the edges of bridges and embankments and on the retaining walls
       // Create a stream that generates the blocks that need to be modified
 
-      Stream<SetBlockOperation> operations = StreamSupport.stream(constants.getSelectedRegion().spliterator(), false).filter(point -> trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), 320, baseMask) != point.getY() || !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask)))).map(point -> {
+      Stream<SetBlockOperation> operations = StreamSupport.stream(constants.selectedRegion().spliterator(), false).filter(point -> trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), 320, baseMask) != point.getY() || !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask)))).map(point -> {
         boolean isOnOuterEdge = !Functions.occludedByMaskCardinal.test(point, new MaskUnion(trackMask, endMarkerMask));
 
         Map<Direction, Integer> numTrackBlocksByDirection = Direction.valuesOf(Flag.CARDINAL).stream().collect(Collectors.toUnmodifiableMap(Function.identity(), dir -> getTrackBlocksCount(point, editSession, trackMask, IntStream.range(1, 5).toArray(), dir)));
         Direction catenaryDirection = numTrackBlocksByDirection.entrySet().stream().max((a, b) -> a.getValue().compareTo(b.getValue())).get().getKey();
         Direction oppositeToCatenaryDirection = Direction.findClosest(catenaryDirection.toVector().multiply(-1), Flag.CARDINAL);
 
-        boolean atAppropriateLocation = poleLocations.isEmpty() ? true : poleLocations.stream().allMatch(poleLocation -> point.distance(poleLocation) >= poleSpacing);
+        boolean atAppropriateLocation = poleLocations.isEmpty() ? true : poleLocations.stream().allMatch(poleLocation -> point.distance(poleLocation) >= nodeSpacing);
         boolean directionIsAllowed = allowedXDirection == catenaryDirection || allowedZDirection == catenaryDirection;
 
         // If includeCatenary is true, then build the catenary
@@ -175,23 +221,23 @@ public class FencingCommand {
 
       // Set up feedback system
       int blocksEvaluated = 0;
-      final long regionSize = constants.getSelectedRegion().getVolume();
-      constants.getActor().printInfo(TextComponent.of("Creating fencing..."));
+      final long regionSize = constants.selectedRegion().getVolume();
+      constants.actor().printInfo(TextComponent.of("Creating fencing..."));
 
       // Do the actual modification
       operations.forEach(op -> {
         try {
           editSession.setBlock(op.point(), op.pattern());
-          showFeedback(blocksEvaluated, regionSize, constants.getActor());
+          showFeedback(blocksEvaluated, regionSize, constants.actor());
         } catch (MaxChangedBlocksException e) {
-          constants.getActor().printError(e.getRichMessage());
+          constants.actor().printError(e.getRichMessage());
         }
       });
 
       long finishTime = System.currentTimeMillis();
-      constants.getActor().printInfo(TextComponent.of("Fencing successfully created."));
-      constants.getActor().printInfo(TextComponent.of(editSession.getBlockChangeCount() + " blocks were changed in " + (finishTime - startTime) + " ms."));
-      constants.getLocalSession().remember(editSession);
+      constants.actor().printInfo(TextComponent.of("Fencing successfully created."));
+      constants.actor().printInfo(TextComponent.of(editSession.getBlockChangeCount() + " blocks were changed in " + (finishTime - startTime) + " ms."));
+      constants.localSession().remember(editSession);
       return Command.SINGLE_SUCCESS;
     }
   }

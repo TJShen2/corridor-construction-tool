@@ -6,6 +6,11 @@ import com.sk89q.worldedit.function.mask.Mask;
 import com.sk89q.worldedit.function.mask.Mask2D;
 import com.sk89q.worldedit.math.BlockVector3;
 
+/**
+ * A mask that represents blocks that are a certain distance or more below the highest terrain block at a particular {@code BlockVector2}.
+ * @author TJ Shen
+ * @version 1.0.0
+ */
 public class UndergroundMask extends AbstractExtentMask {
   private final EditSession session;
   private final Mask groundMask;

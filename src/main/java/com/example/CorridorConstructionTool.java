@@ -16,6 +16,11 @@ import com.example.command.TunnelCommand;
 import com.example.command.argument.CatenaryTypeArgumentType;
 import com.example.command.argument.PillarOrientationArgumentType;
 
+/**
+ * This class is the main class of CorridorConstructionTool that initializes the mod.
+ * @author TJ Shen
+ * @version 1.0.0
+ */
 public class CorridorConstructionTool implements ModInitializer {
 	// This logger is used to write text to the console and the log file.
 	// It is considered best practice to use your mod id as the logger's name.
@@ -24,18 +29,18 @@ public class CorridorConstructionTool implements ModInitializer {
 
 	// TODO: Help/documentation in-game or on the web
 
+	/**
+	 * Perform initialization tasks.
+	 * This code runs as soon as Minecraft is in a mod-load-ready state. However, some things (like resources) may still be uninitialized. Proceed with mild caution.
+	 */
 	@Override
 	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "catenary_type"), CatenaryTypeArgumentType.class, ConstantArgumentSerializer.of(CatenaryTypeArgumentType::catenaryType));
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "pillar_orientation"), PillarOrientationArgumentType.class, ConstantArgumentSerializer.of(PillarOrientationArgumentType::orientation));
 
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> EmbankmentCommand.register(dispatcher));
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TunnelCommand.register(dispatcher));
-		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> FencingCommand.register(dispatcher, registryAccess));
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> FencingCommand.register(dispatcher));
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> PillarCommand.register(dispatcher));
 
 		LOGGER.info("Corridor construction tool has been initialized!");

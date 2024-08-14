@@ -30,6 +30,11 @@ import com.sk89q.worldedit.world.block.BlockTypes;
 
 import net.minecraft.server.command.ServerCommandSource;
 
+/**
+ * Contains several functions and class methods for getting input from the Minecraft world through the WorldEdit API.
+ * @author TJ Shen
+ * @version 1.0.0
+ */
 public class Functions {
   public static final BiFunction<BlockVector3, Mask, Integer> countAdjacentBlocks = (point, mask) -> ((mask.test(point.add(1,0,0)) || mask.test(point.add(1,1,0)) || mask.test(point.add(1,-1,0))) ? 1 : 0) +
 			((mask.test(point.add(0,0,1)) || mask.test(point.add(0,1,1)) || mask.test(point.add(0,-1,1))) ? 1 : 0) +
