@@ -133,10 +133,8 @@ public class PillarCommand {
           Integer distanceToNorthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.NORTH, trackWidth);
           Integer distanceToSouthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.SOUTH, trackWidth);
 
-          boolean isInCenter = (distanceToEastEdge == null || distanceToEastEdge > trackWidth / 2 - 1) &&
-              (distanceToWestEdge == null || distanceToWestEdge > trackWidth / 2 - 1) &&
-              (distanceToNorthEdge == null || distanceToNorthEdge > trackWidth / 2 - 1) &&
-              (distanceToSouthEdge == null || distanceToSouthEdge > trackWidth / 2 - 1);
+          boolean isInCenter = (distanceToEastEdge == null || distanceToWestEdge == null || Math.abs(distanceToEastEdge - distanceToWestEdge) < 2) &&
+              (distanceToSouthEdge == null || distanceToNorthEdge == null || Math.abs(distanceToSouthEdge - distanceToNorthEdge) < 2);
 
           if (isInCenter && (pillarLocations.isEmpty() || point.distance(pillarLocations.getLast()) >= pillarSpacing)) {
             BlockVector3 pillarSize = holder.getClipboard().getDimensions();

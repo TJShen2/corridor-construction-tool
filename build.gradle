@@ -42,7 +42,7 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// World Edit
+	// WorldEdit
 	modImplementation "com.sk89q.worldedit:worldedit-core:${project.worldedit_version}"
 	modImplementation "com.sk89q.worldedit:worldedit-fabric-mc${project.minecraft_version}:${project.worldedit_version}"
 }
