@@ -134,7 +134,7 @@ public class PillarCommand {
     List<Substring> maskPatternArgs = argParser.parseArgs().toList();
 
     // Get schematic as clipboard
-    ClipboardHolder holder = new ClipboardHolder(Functions.clipboardFromSchematic.apply(constants.selectionWorld(), pillarSchematicName));
+    ClipboardHolder holder = new ClipboardHolder(Functions.clipboardFromSchematic.apply(pillarSchematicName));
 
     // Verify input
     if (maskPatternArgs.size() != 1) {
@@ -168,19 +168,19 @@ public class PillarCommand {
         }
 
         if (trackMask.test(point) && replaceableBlockMask.test(point.subtract(BlockVector3.UNIT_Y))) {
-          Integer distanceToWestEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.WEST, trackWidth);
-          Integer distanceToEastEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.EAST, trackWidth);
-          Integer distanceToNorthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.NORTH, trackWidth);
-          Integer distanceToSouthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.SOUTH, trackWidth);
+          int distanceToWestEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.WEST, trackWidth);
+          int distanceToEastEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.EAST, trackWidth);
+          int distanceToNorthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.NORTH, trackWidth);
+          int distanceToSouthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.SOUTH, trackWidth);
 
-          boolean isInCenter = (distanceToEastEdge == null || distanceToWestEdge == null || Math.abs(distanceToEastEdge - distanceToWestEdge) < 2) &&
-              (distanceToSouthEdge == null || distanceToNorthEdge == null || Math.abs(distanceToSouthEdge - distanceToNorthEdge) < 2);
+          boolean isInCenter = Math.abs(distanceToEastEdge - distanceToWestEdge) < 2 && Math.abs(distanceToSouthEdge - distanceToNorthEdge) < 2;
+          boolean atAppropriateLocation = pillarLocations.isEmpty() || pillarLocations.stream().allMatch(point2 -> point.distance(point2) >= pillarSpacing);
 
-          if (isInCenter && (pillarLocations.isEmpty() || point.distance(pillarLocations.getLast()) >= pillarSpacing)) {
+          if (isInCenter && atAppropriateLocation) {
             BlockVector3 pillarSize = holder.getClipboard().getDimensions();
             boolean hasCorrectOrientation = switch (pillarOrientation) {
-              case LONGITUDINAL -> pillarSize.getX() > pillarSize.getZ() == (distanceToEastEdge == null || distanceToEastEdge > trackWidth / 2 - 1) && (distanceToWestEdge == null || distanceToWestEdge > trackWidth / 2 - 1);
-              case TRANSVERSE -> pillarSize.getX() < pillarSize.getZ() == (distanceToEastEdge == null || distanceToEastEdge > trackWidth / 2 - 1) && (distanceToWestEdge == null || distanceToWestEdge > trackWidth / 2 - 1);
+              case LONGITUDINAL -> pillarSize.getX() > pillarSize.getZ() == distanceToEastEdge > trackWidth / 2 - 1 && distanceToWestEdge > trackWidth / 2 - 1;
+              case TRANSVERSE -> pillarSize.getX() < pillarSize.getZ() == distanceToEastEdge > trackWidth / 2 - 1 && distanceToWestEdge > trackWidth / 2 - 1;
               case UNSPECIFIED -> true;
             };
 

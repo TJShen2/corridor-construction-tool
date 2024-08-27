@@ -25,8 +25,9 @@ import com.sk89q.worldedit.function.pattern.ClipboardPattern;
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.Direction;
-import com.sk89q.worldedit.world.World;
 import com.sk89q.worldedit.world.block.BlockTypes;
+import com.sk89q.worldedit.extent.clipboard.BlockArrayClipboard;
+import com.sk89q.worldedit.regions.NullRegion;
 
 import net.minecraft.server.command.ServerCommandSource;
 
@@ -76,21 +77,19 @@ public class Functions {
 	public static final Function<ParserContext, Mask> airMask = (context) -> safeParseMaskUnion.apply("minecraft:air", context);
 	public static final BiFunction<Mask, ParserContext, Mask> groundMask = (trackMask, context) -> new MaskIntersection(safeParseMaskUnion.apply("##corridor_construction_tool:natural", context), Masks.negate(safeParseMaskUnion.apply("##corridor_construction_tool:natural_non_terrain", context)), Masks.negate(trackMask));
 
-	public static final BiFunction<World, String, Clipboard> clipboardFromSchematic = (selectionWorld, schematicName) -> {
-		File schematicFile = selectionWorld.getStoragePath().getParent().getParent().resolve("config/worldedit/schematics/" + schematicName + ".schem").toFile();
+	public static final Function<String, Clipboard> clipboardFromSchematic = (schematicName) -> {
+		String schematicSaveDir = WorldEdit.getInstance().getConfiguration().saveDir;
+		File schematicFile = WorldEdit.getInstance().getWorkingDirectoryPath(schematicSaveDir).resolve(schematicName + ".schem").toFile();
 		ClipboardFormat format = ClipboardFormats.findByFile(schematicFile);
-		try {
-			try (ClipboardReader reader = format.getReader(new FileInputStream(schematicFile))) {
-				return reader.read();
-			}
+		try (ClipboardReader reader = format.getReader(new FileInputStream(schematicFile))) {
+			return reader.read();
 		} catch (IOException e) {
-			return null;
+			return new BlockArrayClipboard(new NullRegion());
 		}
 	};
 
-	@SuppressWarnings("deprecation")
-	public static final Function<Clipboard, Pattern> patternFromClipboard = (clipboard) -> clipboard == null ? new BlockPattern(BlockTypes.SMOOTH_QUARTZ.getDefaultState()) : new ClipboardPattern(clipboard);
-	public static final BiFunction<World, String, Pattern> patternFromSchematic = clipboardFromSchematic.andThen(patternFromClipboard);
+	public static final Function<Clipboard, Pattern> patternFromClipboard = (clipboard) -> new ClipboardPattern(clipboard);
+	public static final Function<String, Pattern> patternFromSchematic = clipboardFromSchematic.andThen(patternFromClipboard);
 
 	public static <V> V safeGetArgument(CommandContext<ServerCommandSource> context, String name, Class<V> clazz) {
     try {
@@ -110,8 +109,8 @@ public class Functions {
     }
   }
 
-	public static Integer distanceToEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int searchDistance) {
+	public static int distanceToEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int searchDistance) {
 		BlockVector3 otherPos = findEdge(editSession, mask, startPos.add(dir.toBlockVector()), dir, searchDistance);
-		return otherPos == null ? null : (int) startPos.distance(otherPos);
+		return otherPos == null ? -1 : (int) startPos.distance(otherPos);
   }
 }

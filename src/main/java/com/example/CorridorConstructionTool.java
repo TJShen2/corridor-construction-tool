@@ -15,6 +15,7 @@ import com.example.command.PillarCommand;
 import com.example.command.TunnelCommand;
 import com.example.command.argument.CatenaryTypeArgumentType;
 import com.example.command.argument.PillarOrientationArgumentType;
+import com.sk89q.worldedit.WorldEdit;
 
 /**
  * This class is the main class of CorridorConstructionTool that initializes the mod.
@@ -35,6 +36,8 @@ public class CorridorConstructionTool implements ModInitializer {
 	 */
 	@Override
 	public void onInitialize() {
+		WorldEdit.getInstance().getPatternFactory().register(new SchematicPatternParser(WorldEdit.getInstance()));
+		
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "catenary_type"), CatenaryTypeArgumentType.class, ConstantArgumentSerializer.of(CatenaryTypeArgumentType::catenaryType));
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "pillar_orientation"), PillarOrientationArgumentType.class, ConstantArgumentSerializer.of(PillarOrientationArgumentType::orientation));
 

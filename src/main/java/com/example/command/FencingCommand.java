@@ -204,8 +204,8 @@ public class FencingCommand {
           poleLocations.add(point);
           poleLocations.add(point2);
 
-          int trackWidth = (int) point.distance(point2);
-          float trackWidthMultiplier = trackWidth / normalTrackWidth;
+          int trackWidth = (int) point.distance(point2) + 1;
+          float trackWidthMultiplier = (float) trackWidth / normalTrackWidth;
           List<Integer> effectiveTrackPositions = normalTrackPositions.stream().map(pos -> Math.round(pos * trackWidthMultiplier)).toList();
 
           return buildCatenaryWithFence(poleLocations, catenaryType, editSession, point, point2, trackWidth, poleBasePattern, fencingPattern, catenaryDirection, oppositeToCatenaryDirection, catenaryHeight, trackMask, effectiveTrackPositions, fencingHeight, baseMask, replaceableBlockMask);

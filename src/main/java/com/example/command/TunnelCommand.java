@@ -4,7 +4,6 @@ import com.example.CorridorConstructionConstants;
 import com.example.function.Functions;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -33,7 +32,6 @@ import java.util.concurrent.CompletableFuture;
 
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
-import static com.mojang.brigadier.arguments.BoolArgumentType.getBool;
 
 /**
  * This class represents a brigadier command that creates a tunnel above a track using the WorldEdit API.
@@ -52,7 +50,6 @@ public class TunnelCommand {
 																													// show up in tab completion or execute to non operators or
 																													// any operator that is permission level 1.
 				.then(argument("tunnelHeight", IntegerArgumentType.integer())
-				.then(argument("withSchematic", BoolArgumentType.bool())
 				.then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests(new SuggestionProvider<ServerCommandSource>() {
           @Override
           public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
@@ -71,20 +68,19 @@ public class TunnelCommand {
             }
           }
         })
-				.executes(ctx -> createTunnel(ctx.getSource(), getInteger(ctx, "tunnelHeight"), getBool(ctx, "withSchematic"), getString(ctx, "maskPatternInput")))))));
+				.executes(ctx -> createTunnel(ctx.getSource(), getInteger(ctx, "tunnelHeight"), getString(ctx, "maskPatternInput"))))));
 	}
 
 	/**
 	 * Creates a tunnel above a track within the player's region selection.
 	 * @param source the command source that this command is being run from
 	 * @param tunnelHeight the required clearance above the track bed, in metres
-	 * @param withSchematic whether to use a clipboard pattern loaded from a schematic for the tunnelPattern
 	 * @param maskPatternInputString contains the following arguments, in order, separated by a space:
 	 * trackMask: a mask containing the block(s) the track bed is made of
 	 * tunnelPattern: a pattern representing the block(s) the tunnel walls and ceiling will be constructed with, or, if withSchematic = true, the name of the schematic containing the desired clipboard pattern
 	 * @return 0 if the construction failed, 1 if the construction succeeded
 	 */
-	public static int createTunnel(ServerCommandSource source, int tunnelHeight, boolean withSchematic, String maskPatternInputString) {
+	public static int createTunnel(ServerCommandSource source, int tunnelHeight, String maskPatternInputString) {
 		CorridorConstructionConstants constants = CorridorConstructionConstants.of(source);
 
 		// Define masks and patterns
@@ -92,8 +88,8 @@ public class TunnelCommand {
     List<Substring> maskPatternArgs = argParser.parseArgs().toList();
 
     // Verify input
-    if (maskPatternArgs.size() != 2) {
-      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][tunnelPattern]."));
+    if (maskPatternArgs.size() != 3) {
+      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][wallPattern][ceilingPattern]."));
     }
 
 		//Define masks and patterns
@@ -102,8 +98,8 @@ public class TunnelCommand {
 		Mask airMask = Functions.airMask.apply(constants.parserContext());
 		Mask groundMask = Functions.groundMask.apply(trackMask, constants.parserContext());
 
-		String tunnelPatternString = maskPatternArgs.get(1).getSubstring();
-    Pattern tunnelPattern = withSchematic ? Functions.patternFromSchematic.apply(constants.selectionWorld(), tunnelPatternString) : Functions.safeParsePattern.apply(tunnelPatternString, constants.parserContext());
+    Pattern wallPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.parserContext());
+		Pattern ceilingPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(2).getSubstring(), constants.parserContext());
 
 		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.actor())) {
 			editSession.setMask(replaceableBlockMask);
@@ -142,7 +138,7 @@ public class TunnelCommand {
 							for (int i = 0; i < tunnelHeight; i++) {
 								BlockVector3 wallBlock = point.add(0, i + 1, 0);
 								try {
-									editSession.setBlock(wallBlock, tunnelPattern);
+									editSession.setBlock(wallBlock, wallPattern);
 								} catch (MaxChangedBlocksException e) {
 									constants.actor().printError(TextComponent.of(e.toString()));
 								}
@@ -153,13 +149,13 @@ public class TunnelCommand {
 						}
 						// Tunnel ceiling
 						try {
-							editSession.setBlock(ceilingLocation, tunnelPattern);
+							editSession.setBlock(ceilingLocation, ceilingPattern);
 						} catch (MaxChangedBlocksException e) {
 							constants.actor().printError(TextComponent.of(e.toString()));
 						}
 						if (isBelowTrack) {
 							try {
-								editSession.setBlock(ceilingLocation.subtract(0, 1, 0), tunnelPattern);
+								editSession.setBlock(ceilingLocation.subtract(0, 1, 0), ceilingPattern);
 							} catch (MaxChangedBlocksException e) {
 								constants.actor().printError(TextComponent.of(e.toString()));
 							}
@@ -175,7 +171,7 @@ public class TunnelCommand {
 
 								if (wallBlockTouchingGround) {
 									try {
-										editSession.setBlock(wallBlock, tunnelPattern);
+										editSession.setBlock(wallBlock, wallPattern);
 									} catch (MaxChangedBlocksException e) {
 										constants.actor().printError(TextComponent.of(e.toString()));
 									}
@@ -190,7 +186,7 @@ public class TunnelCommand {
 						if (isTransition) {
 							// Tunnel-cutting transition
 							try {
-								editSession.setBlock(ceilingLocation, tunnelPattern);
+								editSession.setBlock(ceilingLocation, ceilingPattern);
 							} catch (MaxChangedBlocksException e) {
 								constants.actor().printError(TextComponent.of(e.toString()));
 							}
@@ -203,7 +199,7 @@ public class TunnelCommand {
 
 								if (replaceableBlockMask.test(wallBlock) && wallBlockTouchingGround) {
 									try {
-										editSession.setBlock(wallBlock, tunnelPattern);
+										editSession.setBlock(wallBlock, wallPattern);
 									} catch (MaxChangedBlocksException e) {
 										constants.actor().printError(TextComponent.of(e.toString()));
 									}
