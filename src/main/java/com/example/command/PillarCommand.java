@@ -21,6 +21,7 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.WorldEditException;
+import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.function.mask.Mask;
 import com.sk89q.worldedit.function.mask.Masks;
 import com.sk89q.worldedit.function.operation.Operation;
@@ -33,6 +34,7 @@ import com.sk89q.worldedit.session.ClipboardHolder;
 import com.sk89q.worldedit.util.Direction;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 
+import net.minecraft.command.CommandSource;
 import net.minecraft.server.command.ServerCommandSource;
 
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
@@ -92,7 +94,7 @@ public class PillarCommand {
         .then(argument("trackWidth", IntegerArgumentType.integer())
         .then(argument("pillarSpacing", IntegerArgumentType.integer())
         .then(argument("pillarDepth", IntegerArgumentType.integer())
-				.then(argument("pillarSchematicName", StringArgumentType.string())
+				.then(argument("pillarSchematicName", StringArgumentType.string()).suggests((ctx, builder) -> CommandSource.suggestMatching(Functions.getSchematicNames.get(), builder))
         .then(argument("pillarOrientation", PillarOrientationArgumentType.orientation())
 				.then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests(new SuggestionProvider<ServerCommandSource>() {
           @Override
@@ -134,7 +136,13 @@ public class PillarCommand {
     List<Substring> maskPatternArgs = argParser.parseArgs().toList();
 
     // Get schematic as clipboard
-    ClipboardHolder holder = new ClipboardHolder(Functions.clipboardFromSchematic.apply(pillarSchematicName));
+    ClipboardHolder holder;
+    try {
+      holder = new ClipboardHolder(Functions.unsafeClipboardFromSchematic(pillarSchematicName));
+    } catch (InputParseException e) {
+      constants.actor().printError(e.getRichMessage());
+      return 0;
+    }
 
     // Verify input
     if (maskPatternArgs.size() != 1) {
@@ -168,10 +176,10 @@ public class PillarCommand {
         }
 
         if (trackMask.test(point) && replaceableBlockMask.test(point.subtract(BlockVector3.UNIT_Y))) {
-          int distanceToWestEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.WEST, trackWidth);
-          int distanceToEastEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.EAST, trackWidth);
-          int distanceToNorthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.NORTH, trackWidth);
-          int distanceToSouthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.SOUTH, trackWidth);
+          int distanceToWestEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.WEST, trackWidth, 2);
+          int distanceToEastEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.EAST, trackWidth, 2);
+          int distanceToNorthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.NORTH, trackWidth, 2);
+          int distanceToSouthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.SOUTH, trackWidth, 2);
 
           boolean isInCenter = Math.abs(distanceToEastEdge - distanceToWestEdge) < 2 && Math.abs(distanceToSouthEdge - distanceToNorthEdge) < 2;
           boolean atAppropriateLocation = pillarLocations.isEmpty() || pillarLocations.stream().allMatch(point2 -> point.distance(point2) >= pillarSpacing);
@@ -179,8 +187,8 @@ public class PillarCommand {
           if (isInCenter && atAppropriateLocation) {
             BlockVector3 pillarSize = holder.getClipboard().getDimensions();
             boolean hasCorrectOrientation = switch (pillarOrientation) {
-              case LONGITUDINAL -> pillarSize.getX() > pillarSize.getZ() == distanceToEastEdge > trackWidth / 2 - 1 && distanceToWestEdge > trackWidth / 2 - 1;
-              case TRANSVERSE -> pillarSize.getX() < pillarSize.getZ() == distanceToEastEdge > trackWidth / 2 - 1 && distanceToWestEdge > trackWidth / 2 - 1;
+              case LONGITUDINAL -> pillarSize.getX() > pillarSize.getZ() == distanceToEastEdge > distanceToSouthEdge;
+              case TRANSVERSE -> pillarSize.getX() < pillarSize.getZ() == distanceToSouthEdge > distanceToEastEdge;
               case UNSPECIFIED -> true;
             };
 

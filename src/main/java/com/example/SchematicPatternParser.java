@@ -1,11 +1,5 @@
 package com.example;
 
-import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.stream.Stream;
 
 import com.example.function.Functions;
@@ -29,36 +23,24 @@ public class SchematicPatternParser extends InputParser<Pattern> {
 	public Stream<String> getSuggestions(String input) {
 		if (input.isEmpty()) {
 			return Stream.of("$");
-    } else if (input.equals("$")) {
-			return Stream.concat(Stream.of("$"), getSchematicNameSuggestions());
-		} else {
-			String[] offsetParts = input.split("@", 2);
-
-			if (offsetParts.length == 2) {
-				String coords = offsetParts[1];
-				if (coords.isEmpty()) {
-					return Stream.of(input + "[x,y,z]");
-				}
+    }
+		if (input.startsWith("$")) {
+			if (input.equals("$")) {
+				return Functions.getSchematicNames.get().map(s -> "$" + s);
 			} else {
-				return getSchematicNameSuggestions().flatMap(name -> Stream.of("$" + name, "$" + name + "@[x,y,z]"));
+				String[] offsetParts = input.split("@", 2);
+
+				if (offsetParts.length == 2) {
+					String coords = offsetParts[1];
+					if (coords.isEmpty()) {
+						return Stream.of(input + "[x,y,z]");
+					}
+				} else {
+					return Functions.getSchematicNames.get().flatMap(name -> Stream.of("$" + name, "$" + name + "@[x,y,z]"));
+				}
 			}
-			return Stream.empty();
 		}
-	}
-
-	private Stream<String> getSchematicNameSuggestions() {
-		final String saveDir = WorldEdit.getInstance().getConfiguration().saveDir;
-		Path rootDir = WorldEdit.getInstance().getWorkingDirectoryPath(saveDir);
-
-		List<Path> fileList;
-		try {
-			Path resolvedRoot = rootDir.toRealPath();
-			fileList = allFiles(resolvedRoot);
-		} catch (IOException e) {
-			return Stream.empty();
-		}
-
-		return fileList.stream().map(file -> file.getFileName().toString());
+		return Stream.empty();
 	}
 
 	@Override
@@ -85,21 +67,7 @@ public class SchematicPatternParser extends InputParser<Pattern> {
 					Integer.parseInt(offsetSplit[1]),
 					Integer.parseInt(offsetSplit[2]));
 		}
-		Clipboard clipboard = Functions.clipboardFromSchematic.apply(withoutSymbol);
+		Clipboard clipboard = Functions.unsafeClipboardFromSchematic(withoutSymbol);
 		return new ClipboardPattern(clipboard, offset);
-	}
-
-	private static List<Path> allFiles(Path root) throws IOException {
-		List<Path> pathList = new ArrayList<>();
-		try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
-			for (Path path : stream) {
-				if (Files.isDirectory(path)) {
-					pathList.addAll(allFiles(path));
-				} else {
-					pathList.add(path);
-				}
-			}
-		}
-		return pathList;
 	}
 }

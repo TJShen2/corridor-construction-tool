@@ -3,9 +3,15 @@ package com.example.function;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import com.mojang.brigadier.context.CommandContext;
 import com.sk89q.worldedit.EditSession;
@@ -25,10 +31,8 @@ import com.sk89q.worldedit.function.pattern.ClipboardPattern;
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.Direction;
+import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BlockTypes;
-import com.sk89q.worldedit.extent.clipboard.BlockArrayClipboard;
-import com.sk89q.worldedit.regions.NullRegion;
-
 import net.minecraft.server.command.ServerCommandSource;
 
 /**
@@ -84,12 +88,52 @@ public class Functions {
 		try (ClipboardReader reader = format.getReader(new FileInputStream(schematicFile))) {
 			return reader.read();
 		} catch (IOException e) {
-			return new BlockArrayClipboard(new NullRegion());
+			return null;
 		}
 	};
 
-	public static final Function<Clipboard, Pattern> patternFromClipboard = (clipboard) -> new ClipboardPattern(clipboard);
+	public static Clipboard unsafeClipboardFromSchematic(String schematicName) throws InputParseException {
+		String schematicSaveDir = WorldEdit.getInstance().getConfiguration().saveDir;
+		File schematicFile = WorldEdit.getInstance().getWorkingDirectoryPath(schematicSaveDir).resolve(schematicName).toFile();
+		ClipboardFormat format = ClipboardFormats.findByFile(schematicFile);
+		try (ClipboardReader reader = format.getReader(new FileInputStream(schematicFile))) {
+			return reader.read();
+		} catch (IOException e) {
+			throw new InputParseException(TextComponent.of("No matching schematics found."));
+		}
+	};
+
+	public static final Function<Clipboard, Pattern> patternFromClipboard = (clipboard) -> clipboard == null ? null : new ClipboardPattern(clipboard);
 	public static final Function<String, Pattern> patternFromSchematic = clipboardFromSchematic.andThen(patternFromClipboard);
+
+	public static final Supplier<Stream<String>> getSchematicNames = () -> {
+		final String saveDir = WorldEdit.getInstance().getConfiguration().saveDir;
+		Path rootDir = WorldEdit.getInstance().getWorkingDirectoryPath(saveDir);
+
+		List<Path> fileList;
+		try {
+			Path resolvedRoot = rootDir.toRealPath();
+			fileList = allFiles(resolvedRoot);
+		} catch (IOException e) {
+			return Stream.empty();
+		}
+
+		return fileList.stream().map(file -> file.getFileName().toString());
+	};
+
+	private static List<Path> allFiles(Path root) throws IOException {
+		List<Path> pathList = new ArrayList<>();
+		try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+			for (Path path : stream) {
+				if (Files.isDirectory(path)) {
+					pathList.addAll(allFiles(path));
+				} else {
+					pathList.add(path);
+				}
+			}
+		}
+		return pathList;
+	}
 
 	public static <V> V safeGetArgument(CommandContext<ServerCommandSource> context, String name, Class<V> clazz) {
     try {
@@ -99,18 +143,19 @@ public class Functions {
     }
   }
 
-	public static BlockVector3 findEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int searchDistance) {
-		if (searchDistance == 0) {
+	public static BlockVector3 findEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int horizontalSearchDistance, int verticalSearchDistance) {
+		int highestYPos = editSession.getHighestTerrainBlock(startPos.getX(), startPos.getZ(), startPos.getY() - verticalSearchDistance, startPos.getY() + verticalSearchDistance, mask);
+		if (horizontalSearchDistance == 0) {
 			return null;
-		} else if (editSession.getHighestTerrainBlock(startPos.getX(), startPos.getZ(), startPos.getY() - 2, startPos.getY() + 1, mask) == startPos.getY() - 2) {
+		} else if (highestYPos == startPos.getY() - verticalSearchDistance) {
       return startPos.subtract(dir.toBlockVector());
     } else {
-      return findEdge(editSession, mask, startPos.add(dir.toBlockVector()), dir, searchDistance - 1);
+      return findEdge(editSession, mask, startPos.withY(highestYPos).add(dir.toBlockVector()), dir, horizontalSearchDistance - 1, verticalSearchDistance);
     }
   }
 
-	public static int distanceToEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int searchDistance) {
-		BlockVector3 otherPos = findEdge(editSession, mask, startPos.add(dir.toBlockVector()), dir, searchDistance);
+	public static int distanceToEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int horizontalSearchDistance, int verticalSearchDistance) {
+		BlockVector3 otherPos = findEdge(editSession, mask, startPos.add(dir.toBlockVector()), dir, horizontalSearchDistance, verticalSearchDistance);
 		return otherPos == null ? -1 : (int) startPos.distance(otherPos);
   }
 }

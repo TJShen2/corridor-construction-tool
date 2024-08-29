@@ -37,6 +37,8 @@ import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.internal.command.CommandArgParser;
 import com.sk89q.worldedit.internal.util.Substring;
 import com.sk89q.worldedit.math.BlockVector3;
+import com.sk89q.worldedit.regions.CuboidRegion;
+import com.sk89q.worldedit.regions.Region;
 import com.sk89q.worldedit.util.Direction;
 import com.sk89q.worldedit.util.Direction.Flag;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
@@ -161,6 +163,8 @@ public class FencingCommand {
     } else if (!(catenaryType.equals(NONE) || catenaryType.equals(POLE_MOUNTED_SINGLE) || catenaryType.equals(POLE_MOUNTED_DOUBLE) || catenaryType.equals(GANTRY_MOUNTED))) {
       constants.actor().printError(TextComponent.of("\"" + catenaryType + "\"" + " is not a valid catenary type. Please enter \"none\", \"pole_mounted_single\", \"pole_mounted_double\", or \"gantry_mounted\"."));
       return 0;
+    } else if (catenaryType == GANTRY_MOUNTED && nodeSpacing < normalTrackWidth) {
+      constants.actor().printInfo(TextComponent.of("Warning: to prevent gantries from intersecting each other, it is strongly recommended to provide a node spacing that is greater than or equal to the normal track width for gantry mounted catenaries."));
     }
 
     Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.parserContext());
@@ -198,7 +202,7 @@ public class FencingCommand {
 
         // If includeCatenary is true, then build the catenary
         if (includeCatenary && atAppropriateLocation && isOnOuterEdge && directionIsAllowed) {
-          BlockVector3 point2 = Functions.findEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection, 100);
+          BlockVector3 point2 = Functions.findEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection, 100, 2);
           point2 = point2 == null ? point : point2;
 
           poleLocations.add(point);
@@ -250,16 +254,10 @@ public class FencingCommand {
     }
   }
 
-  private static IntStream getSurroundingHeightMap(BlockVector3 point, EditSession editSession, Mask baseMask, int distance, int minY, int maxY) {
-    return IntStream.of(editSession.getHighestTerrainBlock(point.getX() + distance, point.getZ() + distance, 0, 320, baseMask),
-        editSession.getHighestTerrainBlock(point.getX() + distance, point.getZ() - distance, minY, maxY, baseMask),
-        editSession.getHighestTerrainBlock(point.getX() - distance, point.getZ() - distance, minY, maxY, baseMask),
-        editSession.getHighestTerrainBlock(point.getX() - distance, point.getZ() + distance, minY, maxY, baseMask),
-        editSession.getHighestTerrainBlock(point.getX() + distance, point.getZ(), minY, maxY, baseMask),
-        editSession.getHighestTerrainBlock(point.getX(), point.getZ() + distance, minY, maxY, baseMask),
-        editSession.getHighestTerrainBlock(point.getX() - distance, point.getZ(), minY, maxY, baseMask),
-        editSession.getHighestTerrainBlock(point.getX(), point.getZ() - distance, minY, maxY, baseMask)
-    );
+  private static IntStream getSurroundingHeightMap(BlockVector3 origin, EditSession editSession, Mask baseMask, int radius, int minY, int maxY) {
+    Region surroundingRegion = new CuboidRegion(origin.subtract(radius, 0, radius), origin.add(radius, 0, radius));
+
+    return StreamSupport.stream(surroundingRegion.spliterator(), false).mapToInt(point -> editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 320, baseMask));
   }
 
   private static Integer getTrackBlocksCount(BlockVector3 point, EditSession editSession, Mask trackMask, int[] distances, Direction direction) {
@@ -275,18 +273,22 @@ public class FencingCommand {
   }
 
   private static Stream<SetBlockOperation> buildCatenaryWithFence(List<BlockVector3> poleLocations, CatenaryType catenaryType, EditSession editSession, BlockVector3 point1, BlockVector3 point2, int trackWidth, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) {
+    // If catenary is gantry-mounted and one side is higher, we need to increase the gantry height so that it lines up
+    int catenaryHeight1 = catenaryType == GANTRY_MOUNTED ? Math.max(catenaryHeight, catenaryHeight + point2.getY() - point1.getY()) : catenaryHeight;
+    int catenaryHeight2 = catenaryType == GANTRY_MOUNTED ? Math.max(catenaryHeight, catenaryHeight + point1.getY() - point2.getY()) : catenaryHeight;
+
     // Build pole
     int baseBlockHeight1 = Math.max(point1.getY(), editSession.getHighestTerrainBlock(point1.getX(), point1.getZ(), 0, 255, baseMask));
     int baseBlockHeight2 = Math.max(point2.getY(), editSession.getHighestTerrainBlock(point2.getX(), point2.getZ(), 0, 255, baseMask));
 
-    int heightReduction1 = catenaryHeight - (baseBlockHeight1 - point1.getY());
-    int heightReduction2 = catenaryHeight - (baseBlockHeight2 - point1.getY());
+    int heightReduction1 = catenaryHeight1 - (baseBlockHeight1 - point1.getY());
+    int heightReduction2 = catenaryHeight2 - (baseBlockHeight2 - point1.getY());
 
-    BlockVector3 origin1 = point1.add(0, catenaryHeight, 0);
-    BlockVector3 origin2 = point2.add(0, catenaryHeight, 0);
+    BlockVector3 origin1 = point1.add(0, catenaryHeight1, 0);
+    BlockVector3 origin2 = point2.add(0, catenaryHeight2, 0);
 
-    return Stream.of(buildPole(editSession, point1, catenaryHeight, fencingHeight, baseBlockHeight1, baseMask, poleBasePattern, catenaryDirection),
-        buildPole(editSession, point2, catenaryHeight, fencingHeight, baseBlockHeight2, baseMask, poleBasePattern, oppositeToCatenaryDirection),
+    return Stream.of(buildPole(editSession, point1, catenaryHeight1, fencingHeight, baseBlockHeight1, baseMask, poleBasePattern, catenaryDirection),
+        buildPole(editSession, point2, catenaryHeight2, fencingHeight, baseBlockHeight2, baseMask, poleBasePattern, oppositeToCatenaryDirection),
         buildFence(editSession, origin1.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction1), baseMask, replaceableBlockMask, fencingPattern, false),
         buildFence(editSession, origin2.add(BlockVector3.UNIT_Y), Math.max(0, fencingHeight - heightReduction2), baseMask, replaceableBlockMask, fencingPattern, false),
 
