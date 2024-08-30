@@ -1,4 +1,4 @@
-package com.example.mask;
+package com.tj.function.mask;
 
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.function.mask.AbstractExtentMask;
@@ -25,7 +25,7 @@ public class UndergroundMask extends AbstractExtentMask {
 
   @Override
   public boolean test(BlockVector3 vector) {
-    return session.getHighestTerrainBlock(vector.getX(), vector.getZ(), vector.getY(), 320, groundMask) - vector.getY() >= minDepth;
+    return session.getHighestTerrainBlock(vector.getX(), vector.getZ(), vector.getY(), session.getWorld().getMaxY(), groundMask) - vector.getY() >= minDepth;
   }
 
   @Override

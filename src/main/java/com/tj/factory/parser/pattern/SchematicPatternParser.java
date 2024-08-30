@@ -1,8 +1,7 @@
-package com.example;
+package com.tj.factory.parser.pattern;
 
 import java.util.stream.Stream;
 
-import com.example.function.Functions;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.extension.input.ParserContext;
@@ -12,6 +11,7 @@ import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.internal.registry.InputParser;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.formatting.text.TranslatableComponent;
+import com.tj.function.Functions;
 
 public class SchematicPatternParser extends InputParser<Pattern> {
 

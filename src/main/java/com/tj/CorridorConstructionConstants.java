@@ -1,4 +1,4 @@
-package com.example;
+package com.tj;
 
 import com.sk89q.worldedit.IncompleteRegionException;
 import com.sk89q.worldedit.LocalSession;

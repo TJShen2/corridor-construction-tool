@@ -1,4 +1,4 @@
-package com.example.command;
+package com.tj.corridorconstructiontool.command;
 
 import net.minecraft.server.command.ServerCommandSource;
 import static net.minecraft.server.command.CommandManager.*;
@@ -15,10 +15,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import com.example.CorridorConstructionConstants;
-import com.example.SetBlockOperation;
-import com.example.command.argument.CatenaryTypeArgumentType;
-import com.example.function.Functions;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -44,11 +40,16 @@ import com.sk89q.worldedit.util.Direction.Flag;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BlockType;
 import com.sk89q.worldedit.world.block.BlockTypes;
+import com.tj.CorridorConstructionConstants;
+import com.tj.SetBlockOperation;
+import com.tj.corridorconstructiontool.argument.CatenaryTypeArgumentType;
+import com.tj.function.DistanceToEdges;
+import com.tj.function.Functions;
 
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
+import static com.tj.corridorconstructiontool.argument.CatenaryTypeArgumentType.getCatenaryType;
+import static com.tj.corridorconstructiontool.command.FencingCommand.CatenaryType.*;
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
-import static com.example.command.argument.CatenaryTypeArgumentType.getCatenaryType;
-import static com.example.command.FencingCommand.CatenaryType.*;
 
 /**
  * This class represents a brigadier command that creates a fence beside the track and (optionally) an electrical system above the track using the WorldEdit API.
@@ -190,7 +191,7 @@ public class FencingCommand {
       // Place fences on the edges of bridges and embankments and on the retaining walls
       // Create a stream that generates the blocks that need to be modified
 
-      Stream<SetBlockOperation> operations = StreamSupport.stream(constants.selectedRegion().spliterator(), false).filter(point -> trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), 320, baseMask) != point.getY() || !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask)))).map(point -> {
+      Stream<SetBlockOperation> operations = StreamSupport.stream(constants.selectedRegion().spliterator(), false).filter(point -> trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), editSession.getWorld().getMaxY(), baseMask) != point.getY() || !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask)))).map(point -> {
         boolean isOnOuterEdge = !Functions.occludedByMaskCardinal.test(point, new MaskUnion(trackMask, endMarkerMask));
 
         Map<Direction, Integer> numTrackBlocksByDirection = Direction.valuesOf(Flag.CARDINAL).stream().collect(Collectors.toUnmodifiableMap(Function.identity(), dir -> getTrackBlocksCount(point, editSession, trackMask, IntStream.range(1, 5).toArray(), dir)));
@@ -202,7 +203,7 @@ public class FencingCommand {
 
         // If includeCatenary is true, then build the catenary
         if (includeCatenary && atAppropriateLocation && isOnOuterEdge && directionIsAllowed) {
-          BlockVector3 point2 = Functions.findEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection, 100, 2);
+          BlockVector3 point2 = DistanceToEdges.findEdge(editSession, trackMask, point.add(catenaryDirection.toBlockVector()), catenaryDirection, 100, 2);
           point2 = point2 == null ? point : point2;
 
           poleLocations.add(point);
@@ -257,7 +258,7 @@ public class FencingCommand {
   private static IntStream getSurroundingHeightMap(BlockVector3 origin, EditSession editSession, Mask baseMask, int radius, int minY, int maxY) {
     Region surroundingRegion = new CuboidRegion(origin.subtract(radius, 0, radius), origin.add(radius, 0, radius));
 
-    return StreamSupport.stream(surroundingRegion.spliterator(), false).mapToInt(point -> editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 320, baseMask));
+    return StreamSupport.stream(surroundingRegion.spliterator(), false).mapToInt(point -> editSession.getHighestTerrainBlock(point.getX(), point.getZ(), minY, maxY, baseMask));
   }
 
   private static Integer getTrackBlocksCount(BlockVector3 point, EditSession editSession, Mask trackMask, int[] distances, Direction direction) {
@@ -266,7 +267,7 @@ public class FencingCommand {
       BlockVector3 origin = point.add(direction.toBlockVector().multiply(distance));
 
       for (int i = -distance; i < distance; i++) {
-        trackBlocksCount += (editSession.getHighestTerrainBlock(origin.getX() + i * direction.toBlockVector().getZ(), origin.getZ() + i * direction.toBlockVector().getX(), 0, 320, trackMask) >= point.getY() - 1) ? 1 : 0;
+        trackBlocksCount += (editSession.getHighestTerrainBlock(origin.getX() + i * direction.toBlockVector().getZ(), origin.getZ() + i * direction.toBlockVector().getX(), editSession.getWorld().getMinY(), editSession.getWorld().getMaxY(), trackMask) >= point.getY() - 1) ? 1 : 0;
       }
     }
     return trackBlocksCount;
@@ -303,7 +304,7 @@ public class FencingCommand {
   }
 
   private static Stream<SetBlockOperation> buildPole(EditSession editSession, BlockVector3 point, int catenaryHeight, int fencingHeight, int baseBlockHeight, Mask baseMask, Pattern poleBase, Direction catenaryDirection) {
-    IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, 0, 320));
+    IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, editSession.getWorld().getMinY(), editSession.getWorld().getMaxY()));
 
     BlockVector3 baseBlock = BlockVector3.at(point.getX(), baseBlockHeight, point.getZ());
     int fencingHeightBonus = Math.max(baseBlockHeight, surroundingHeightMap.max().getAsInt()) - baseBlock.getY();
@@ -318,7 +319,7 @@ public class FencingCommand {
   }
 
   private static Stream<SetBlockOperation> buildFence(EditSession editSession, BlockVector3 point, int fencingHeight, Mask baseMask, Mask replaceableBlockMask, Pattern fencingPattern, boolean applyHeightBonus) {
-    IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, 0, 320));
+    IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, editSession.getWorld().getMinY(), editSession.getWorld().getMaxY()));
 
     int baseBlockHeight = Math.max(point.getY(), editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 255, baseMask));
     BlockVector3 baseBlock = BlockVector3.at(point.getX(), baseBlockHeight, point.getZ());

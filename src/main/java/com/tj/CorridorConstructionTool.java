@@ -1,4 +1,4 @@
-package com.example;
+package com.tj;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.ArgumentTypeRegistry;
@@ -9,13 +9,14 @@ import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.example.command.EmbankmentCommand;
-import com.example.command.FencingCommand;
-import com.example.command.PillarCommand;
-import com.example.command.TunnelCommand;
-import com.example.command.argument.CatenaryTypeArgumentType;
-import com.example.command.argument.PillarOrientationArgumentType;
 import com.sk89q.worldedit.WorldEdit;
+import com.tj.corridorconstructiontool.argument.CatenaryTypeArgumentType;
+import com.tj.corridorconstructiontool.argument.PillarOrientationArgumentType;
+import com.tj.corridorconstructiontool.command.EmbankmentCommand;
+import com.tj.corridorconstructiontool.command.FencingCommand;
+import com.tj.corridorconstructiontool.command.PillarCommand;
+import com.tj.corridorconstructiontool.command.TunnelCommand;
+import com.tj.factory.parser.pattern.SchematicPatternParser;
 
 /**
  * This class is the main class of CorridorConstructionTool that initializes the mod.
@@ -29,6 +30,7 @@ public class CorridorConstructionTool implements ModInitializer {
   public static final Logger LOGGER = LoggerFactory.getLogger("CorridorConstructionTool");
 
 	// TODO: Help/documentation in-game or on the web
+	// TODO: Fix embankment construction inconsistency
 
 	/**
 	 * Perform initialization tasks.
@@ -37,7 +39,7 @@ public class CorridorConstructionTool implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		WorldEdit.getInstance().getPatternFactory().register(new SchematicPatternParser(WorldEdit.getInstance()));
-		
+
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "catenary_type"), CatenaryTypeArgumentType.class, ConstantArgumentSerializer.of(CatenaryTypeArgumentType::catenaryType));
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "pillar_orientation"), PillarOrientationArgumentType.class, ConstantArgumentSerializer.of(PillarOrientationArgumentType::orientation));
 

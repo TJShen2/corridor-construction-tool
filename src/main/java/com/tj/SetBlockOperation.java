@@ -1,4 +1,4 @@
-package com.example;
+package com.tj;
 
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;

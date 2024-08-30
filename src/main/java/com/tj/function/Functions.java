@@ -1,4 +1,4 @@
-package com.example.function;
+package com.tj.function;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -14,7 +14,6 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import com.mojang.brigadier.context.CommandContext;
-import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.extension.input.ParserContext;
@@ -30,7 +29,6 @@ import com.sk89q.worldedit.function.pattern.BlockPattern;
 import com.sk89q.worldedit.function.pattern.ClipboardPattern;
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldedit.util.Direction;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BlockTypes;
 import net.minecraft.server.command.ServerCommandSource;
@@ -143,19 +141,5 @@ public class Functions {
     }
   }
 
-	public static BlockVector3 findEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int horizontalSearchDistance, int verticalSearchDistance) {
-		int highestYPos = editSession.getHighestTerrainBlock(startPos.getX(), startPos.getZ(), startPos.getY() - verticalSearchDistance, startPos.getY() + verticalSearchDistance, mask);
-		if (horizontalSearchDistance == 0) {
-			return null;
-		} else if (highestYPos == startPos.getY() - verticalSearchDistance) {
-      return startPos.subtract(dir.toBlockVector());
-    } else {
-      return findEdge(editSession, mask, startPos.withY(highestYPos).add(dir.toBlockVector()), dir, horizontalSearchDistance - 1, verticalSearchDistance);
-    }
-  }
 
-	public static int distanceToEdge(EditSession editSession, Mask mask, BlockVector3 startPos, Direction dir, int horizontalSearchDistance, int verticalSearchDistance) {
-		BlockVector3 otherPos = findEdge(editSession, mask, startPos.add(dir.toBlockVector()), dir, horizontalSearchDistance, verticalSearchDistance);
-		return otherPos == null ? -1 : (int) startPos.distance(otherPos);
-  }
 }

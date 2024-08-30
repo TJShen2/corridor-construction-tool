@@ -1,47 +1,49 @@
-package com.example.command;
+package com.tj.corridorconstructiontool.command;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-
-import com.example.CorridorConstructionConstants;
-import com.example.command.argument.PillarOrientationArgumentType;
-import com.example.function.Functions;
-import com.example.mask.UndergroundMask;
 
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.context.CommandContext;
-import com.mojang.brigadier.suggestion.SuggestionProvider;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.sk89q.worldedit.EditSession;
+import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.WorldEditException;
 import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.function.mask.Mask;
+import com.sk89q.worldedit.function.mask.MaskIntersection;
 import com.sk89q.worldedit.function.mask.Masks;
 import com.sk89q.worldedit.function.operation.Operation;
 import com.sk89q.worldedit.function.operation.Operations;
+import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.internal.command.CommandArgParser;
 import com.sk89q.worldedit.internal.util.Substring;
+import com.sk89q.worldedit.math.BlockVector2;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.math.transform.AffineTransform;
+import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.session.ClipboardHolder;
-import com.sk89q.worldedit.util.Direction;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
+import com.tj.CorridorConstructionConstants;
+import com.tj.corridorconstructiontool.argument.PillarOrientationArgumentType;
+import com.tj.function.DistanceToEdges;
+import com.tj.function.Functions;
+import com.tj.function.mask.UndergroundMask;
+import com.tj.regions.HorizontallyBoundedCuboidRegion;
 
 import net.minecraft.command.CommandSource;
 import net.minecraft.server.command.ServerCommandSource;
 
 import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
 import static com.mojang.brigadier.arguments.StringArgumentType.getString;
+import static com.tj.corridorconstructiontool.argument.PillarOrientationArgumentType.getOrientation;
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
-import static com.example.command.argument.PillarOrientationArgumentType.getOrientation;
 
 /**
  * This class represents a brigadier command that creates pillars at regular intervals underneath a track bed using the WorldEdit API.
@@ -69,9 +71,9 @@ public class PillarCommand {
     UNSPECIFIED;
 
     /**
-     * Produces a PillarOrientation instance from a string.
-     * @param input the string to parse into a PillarOrientation
-     * @return the field of PillarOrientation with the same name as the input, or UNSPECIFIED if the input string does not match the name of any field of PillarOrientation
+     * Produces a {@code PillarOrientation} instance from a string.
+     * @param input the string to parse into a {@code PillarOrientation}
+     * @return the field of {@code PillarOrientation} with the same name as the input, or UNSPECIFIED if the input string does not match the name of any field of {@code PillarOrientation}
      */
     public static PillarOrientation fromString(String input) {
       try {
@@ -96,22 +98,19 @@ public class PillarCommand {
         .then(argument("pillarDepth", IntegerArgumentType.integer())
 				.then(argument("pillarSchematicName", StringArgumentType.string()).suggests((ctx, builder) -> CommandSource.suggestMatching(Functions.getSchematicNames.get(), builder))
         .then(argument("pillarOrientation", PillarOrientationArgumentType.orientation())
-				.then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests(new SuggestionProvider<ServerCommandSource>() {
-          @Override
-          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
-            String input = Functions.safeGetArgument(context, "maskPatternInput", String.class);
+				.then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests((context, builder) -> {
+          String input = Functions.safeGetArgument(context, "maskPatternInput", String.class);
 
-            if (input == null) {
-              return Suggestions.empty();
-            } else {
-              String currentInput = Arrays.asList(Arrays.asList(input.split(" ")).getLast().split(",")).getLast();
-              int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
-              List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
+          if (input == null) {
+            return Suggestions.empty();
+          } else {
+            String currentInput = Arrays.asList(Arrays.asList(input.split(" ")).getLast().split(",")).getLast();
+            int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
+            List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
 
-              SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
-              suggestions.stream().forEach(e -> builder2.suggest(e));
-              return builder2.buildFuture();
-            }
+            SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
+            suggestions.stream().forEach(e -> builder2.suggest(e));
+            return builder2.buildFuture();
           }
         })
 				.executes(ctx -> createPillars(ctx.getSource(), getInteger(ctx, "trackWidth"), getInteger(ctx, "pillarSpacing"), getInteger(ctx, "pillarDepth"), getString(ctx, "pillarSchematicName"), getOrientation(ctx, "pillarOrientation"), getString(ctx, "maskPatternInput"))))))))));
@@ -145,14 +144,18 @@ public class PillarCommand {
     }
 
     // Verify input
-    if (maskPatternArgs.size() != 1) {
-      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask]."));
+    if (maskPatternArgs.size() != 2) {
+      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][fillPattern]."));
     }
 
 		// Define masks
     Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.parserContext());
 		Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:pillar_replaceable", constants.parserContext());
+    // TODO: overly broad groundMask leads to overly broad undergroundMask leading to failure of pillar construction underneath catenary and fencing structures
 		Mask groundMask = Functions.groundMask.apply(trackMask, constants.parserContext());
+
+    // Define patterns
+    Pattern fillPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.parserContext());
 
     // Keep track of where pillars have already been placed
     List<BlockVector3> pillarLocations = new ArrayList<>();
@@ -160,14 +163,15 @@ public class PillarCommand {
     try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.actor())) {
       // Set mask
       Mask undergroundMask = new UndergroundMask(editSession, groundMask, pillarDepth);
-      editSession.setMask(Masks.negate(undergroundMask));
+      Mask underTrackMask = new UndergroundMask(editSession, trackMask, 1);
+      editSession.setMask(new MaskIntersection(Masks.negate(undergroundMask), underTrackMask));
 
       // Provide feedback to user
       int blocksEvaluated = 0;
       long regionSize = constants.selectedRegion().getVolume();
       constants.actor().printInfo(TextComponent.of("Creating pillars..."));
 
-      for (BlockVector3 point : constants.selectedRegion()) {
+      LOOPTHROUGHPOINTS: for (BlockVector3 point : constants.selectedRegion()) {
         // Provide feedback to user
         blocksEvaluated++;
         if (blocksEvaluated % 50000 == 0) {
@@ -176,19 +180,36 @@ public class PillarCommand {
         }
 
         if (trackMask.test(point) && replaceableBlockMask.test(point.subtract(BlockVector3.UNIT_Y))) {
-          int distanceToWestEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.WEST, trackWidth, 2);
-          int distanceToEastEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.EAST, trackWidth, 2);
-          int distanceToNorthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.NORTH, trackWidth, 2);
-          int distanceToSouthEdge = Functions.distanceToEdge(editSession, trackMask, point, Direction.SOUTH, trackWidth, 2);
+          // Move clipboard origin to the centre of the pillar
+          DistanceToEdges pointDistanceToEdges = DistanceToEdges.findEdges(editSession, trackMask, point, trackWidth * 2, 2);
+          boolean isInCenter = Math.abs(pointDistanceToEdges.east() - pointDistanceToEdges.west()) <= 1 && Math.abs(pointDistanceToEdges.south() - pointDistanceToEdges.north()) <= 1;
+          holder.getClipboard().setOrigin(holder.getClipboard().getRegion().getCenter().withY(((CuboidRegion) holder.getClipboard().getRegion()).getMaximumY() + 1).toBlockPoint());
 
-          boolean isInCenter = Math.abs(distanceToEastEdge - distanceToWestEdge) < 2 && Math.abs(distanceToSouthEdge - distanceToNorthEdge) < 2;
-          boolean atAppropriateLocation = pillarLocations.isEmpty() || pillarLocations.stream().allMatch(point2 -> point.distance(point2) >= pillarSpacing);
+          // Analyse the area that will be occupied by the pillar to determine whether placement of pillar blocks will be fully underneath track, and therefore whether the pillar is aligned correctly
+          BlockVector3 centreDisplacement = point.subtract(holder.getClipboard().getRegion().getCenter().toBlockPoint());
+          HorizontallyBoundedCuboidRegion pillarRegion = new HorizontallyBoundedCuboidRegion(((CuboidRegion) holder.getClipboard().getRegion()).getPos1().add(centreDisplacement), ((CuboidRegion) holder.getClipboard().getRegion()).getPos2().add(centreDisplacement));
+          BlockVector2[] pillarRegionCorners = {
+              BlockVector2.at(pillarRegion.getPos1().getX(), pillarRegion.getPos1().getZ()),
+              BlockVector2.at(pillarRegion.getPos1().getX(), pillarRegion.getPos2().getZ()),
+              BlockVector2.at(pillarRegion.getPos2().getX(), pillarRegion.getPos1().getZ()),
+              BlockVector2.at(pillarRegion.getPos2().getX(), pillarRegion.getPos2().getZ())
+          };
+          boolean isAligned = true;
+          for (BlockVector2 col : pillarRegionCorners) {
+            if (editSession.getHighestTerrainBlock(col.getX(), col.getZ(), point.getY() - trackWidth / 2, point.getY() + trackWidth / 2, trackMask) == point.getY() - trackWidth / 2) {
+              isAligned = false;
+              break;
+            }
+          }
 
-          if (isInCenter && atAppropriateLocation) {
+          // Determine whether the pillar location is far enough away from the last pillar constructed
+          boolean atAppropriateLocation = (pillarLocations.isEmpty() || pillarLocations.stream().allMatch(point2 -> point.distance(point2) >= pillarSpacing));
+
+          if (isInCenter && isAligned && atAppropriateLocation) {
             BlockVector3 pillarSize = holder.getClipboard().getDimensions();
             boolean hasCorrectOrientation = switch (pillarOrientation) {
-              case LONGITUDINAL -> pillarSize.getX() > pillarSize.getZ() == distanceToEastEdge > distanceToSouthEdge;
-              case TRANSVERSE -> pillarSize.getX() < pillarSize.getZ() == distanceToSouthEdge > distanceToEastEdge;
+              case LONGITUDINAL -> pillarSize.getX() > pillarSize.getZ() == pointDistanceToEdges.east() > pointDistanceToEdges.south();
+              case TRANSVERSE -> pillarSize.getX() < pillarSize.getZ() == pointDistanceToEdges.south() > pointDistanceToEdges.east();
               case UNSPECIFIED -> true;
             };
 
@@ -206,6 +227,20 @@ public class PillarCommand {
               Operations.complete(operation);
             } catch (WorldEditException e) {
               constants.actor().printError(e.getRichMessage());
+            }
+
+            // Fill in area above pillar but below track (on segments of track with a nonzero grade)
+            for (BlockVector2 col : pillarRegion.asFlatRegion()) {
+              BlockVector3 highestFillBlock = col.toBlockVector3(editSession.getHighestTerrainBlock(col.getX(), col.getZ(), point.getY(), point.getY() + trackWidth / 2, trackMask));
+              BlockVector3 lowestFillBlock = col.toBlockVector3(point.getY());
+              if (!highestFillBlock.equals(lowestFillBlock)) {
+                try {
+                  editSession.setBlocks(new CuboidRegion(highestFillBlock, lowestFillBlock), fillPattern);
+                } catch (MaxChangedBlocksException e) {
+                  constants.actor().printError(e.getRichMessage());
+                  break LOOPTHROUGHPOINTS;
+                }
+              }
             }
             constants.actor().printInfo(TextComponent.of("Created a pillar at: " + point.toString()));
           }

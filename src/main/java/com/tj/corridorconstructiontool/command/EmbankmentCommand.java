@@ -1,8 +1,5 @@
-package com.example.command;
+package com.tj.corridorconstructiontool.command;
 
-import com.example.CorridorConstructionConstants;
-import com.example.function.Functions;
-import com.example.mask.UndergroundMask;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
@@ -28,6 +25,10 @@ import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.regions.FlatRegion;
 import com.sk89q.worldedit.regions.Region;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
+import com.tj.CorridorConstructionConstants;
+import com.tj.function.Functions;
+import com.tj.function.mask.UndergroundMask;
+
 import net.minecraft.server.command.ServerCommandSource;
 
 import java.util.Arrays;
