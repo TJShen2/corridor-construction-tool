@@ -1,4 +1,4 @@
-package com.tj.factory.parser.pattern;
+package com.tj.corridorconstructiontool.factory.parser.pattern;
 
 import java.util.stream.Stream;
 
@@ -11,7 +11,7 @@ import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.internal.registry.InputParser;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.formatting.text.TranslatableComponent;
-import com.tj.function.Functions;
+import com.tj.corridorconstructiontool.function.Functions;
 
 public class SchematicPatternParser extends InputParser<Pattern> {
 

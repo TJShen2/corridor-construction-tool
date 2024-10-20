@@ -7,7 +7,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
-import com.tj.corridorconstructiontool.command.PillarCommand.PillarOrientation;
+import com.tj.corridorconstructiontool.command.ElevatedAlignmentCommand.PillarOrientation;
 
 import net.minecraft.command.CommandSource;
 import net.minecraft.text.Text;

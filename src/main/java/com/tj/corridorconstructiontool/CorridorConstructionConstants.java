@@ -1,4 +1,4 @@
-package com.tj;
+package com.tj.corridorconstructiontool;
 
 import com.sk89q.worldedit.IncompleteRegionException;
 import com.sk89q.worldedit.LocalSession;

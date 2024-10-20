@@ -1,4 +1,4 @@
-package com.tj.function;
+package com.tj.corridorconstructiontool.function;
 
 import java.util.Objects;
 import com.sk89q.worldedit.EditSession;

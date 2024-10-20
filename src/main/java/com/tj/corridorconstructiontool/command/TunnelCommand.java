@@ -19,8 +19,8 @@ import com.sk89q.worldedit.internal.util.Substring;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BlockTypes;
-import com.tj.CorridorConstructionConstants;
-import com.tj.function.Functions;
+import com.tj.corridorconstructiontool.CorridorConstructionConstants;
+import com.tj.corridorconstructiontool.function.Functions;
 
 import net.minecraft.server.command.ServerCommandSource;
 

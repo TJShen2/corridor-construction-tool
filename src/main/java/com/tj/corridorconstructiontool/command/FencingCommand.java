@@ -1,14 +1,10 @@
 package com.tj.corridorconstructiontool.command;
 
-import net.minecraft.server.command.ServerCommandSource;
-import static net.minecraft.server.command.CommandManager.*;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -18,9 +14,9 @@ import java.util.stream.StreamSupport;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
 import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.context.CommandContext;
-import com.mojang.brigadier.suggestion.SuggestionProvider;
+import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.sk89q.worldedit.EditSession;
@@ -40,16 +36,20 @@ import com.sk89q.worldedit.util.Direction.Flag;
 import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.sk89q.worldedit.world.block.BlockType;
 import com.sk89q.worldedit.world.block.BlockTypes;
-import com.tj.CorridorConstructionConstants;
-import com.tj.SetBlockOperation;
+import com.tj.corridorconstructiontool.CorridorConstructionConstants;
 import com.tj.corridorconstructiontool.argument.CatenaryTypeArgumentType;
-import com.tj.function.DistanceToEdges;
-import com.tj.function.Functions;
-
-import static com.mojang.brigadier.arguments.StringArgumentType.getString;
 import static com.tj.corridorconstructiontool.argument.CatenaryTypeArgumentType.getCatenaryType;
-import static com.tj.corridorconstructiontool.command.FencingCommand.CatenaryType.*;
-import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
+import static com.tj.corridorconstructiontool.command.FencingCommand.CatenaryType.GANTRY_MOUNTED;
+import static com.tj.corridorconstructiontool.command.FencingCommand.CatenaryType.NONE;
+import static com.tj.corridorconstructiontool.command.FencingCommand.CatenaryType.POLE_MOUNTED_DOUBLE;
+import static com.tj.corridorconstructiontool.command.FencingCommand.CatenaryType.POLE_MOUNTED_SINGLE;
+import com.tj.corridorconstructiontool.operation.PatternRecord;
+import com.tj.corridorconstructiontool.function.DistanceToEdges;
+import com.tj.corridorconstructiontool.function.Functions;
+
+import static net.minecraft.server.command.CommandManager.argument;
+import static net.minecraft.server.command.CommandManager.literal;
+import net.minecraft.server.command.ServerCommandSource;
 
 /**
  * This class represents a brigadier command that creates a fence beside the track and (optionally) an electrical system above the track using the WorldEdit API.
@@ -108,14 +108,12 @@ public class FencingCommand {
         .then(argument("normalTrackWidth", IntegerArgumentType.integer())
         .then(argument("trackPositions", StringArgumentType.string())
 
-        .then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests(new SuggestionProvider<ServerCommandSource>() {
-          @Override
-          public CompletableFuture<Suggestions> getSuggestions(CommandContext<ServerCommandSource> context, SuggestionsBuilder builder) {
-            String input = Functions.safeGetArgument(context, "maskPatternInput", String.class);
+        .then(argument("maskPatternInput", StringArgumentType.greedyString()).suggests((context, builder) -> {
+          String input = Functions.safeGetArgument(context, "maskPatternInput", String.class);
 
-            if (input == null) {
+          if (input == null) {
               return Suggestions.empty();
-            } else {
+          } else {
               String currentInput = Arrays.asList(Arrays.asList(input.split(" ")).getLast().split(",")).getLast();
               int start = Math.max(context.getInput().lastIndexOf(","), context.getInput().lastIndexOf(" ")) + 1;
               List<String> suggestions = WorldEdit.getInstance().getMaskFactory().getSuggestions(currentInput);
@@ -123,7 +121,6 @@ public class FencingCommand {
               SuggestionsBuilder builder2 = new SuggestionsBuilder(context.getInput(), start);
               suggestions.stream().forEach(e -> builder2.suggest(e));
               return builder2.buildFuture();
-            }
           }
         })
             .executes(ctx -> createFencing(ctx.getSource(), getInteger(ctx, "fencingHeight"), getCatenaryType(ctx, "catenaryType"), getInteger(ctx, "catenaryHeight"), getInteger(ctx, "normalTrackWidth"), getInteger(ctx, "nodeSpacing"), getString(ctx, "trackPositions"), getString(ctx, "maskPatternInput")))))))))));
@@ -191,7 +188,7 @@ public class FencingCommand {
       // Place fences on the edges of bridges and embankments and on the retaining walls
       // Create a stream that generates the blocks that need to be modified
 
-      Stream<SetBlockOperation> operations = StreamSupport.stream(constants.selectedRegion().spliterator(), false).filter(point -> trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), editSession.getWorld().getMaxY(), baseMask) != point.getY() || !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask)))).map(point -> {
+      Stream<PatternRecord> operations = StreamSupport.stream(constants.selectedRegion().spliterator(), false).filter(point -> trackMask.test(point) && (editSession.getHighestTerrainBlock(point.getX(), point.getZ(), point.getY(), editSession.getWorld().getMaxY(), baseMask) != point.getY() || !Functions.occludedByMask2D.test(point, new MaskUnion(trackMask, endMarkerMask)))).map(point -> {
         boolean isOnOuterEdge = !Functions.occludedByMaskCardinal.test(point, new MaskUnion(trackMask, endMarkerMask));
 
         Map<Direction, Integer> numTrackBlocksByDirection = Direction.valuesOf(Flag.CARDINAL).stream().collect(Collectors.toUnmodifiableMap(Function.identity(), dir -> getTrackBlocksCount(point, editSession, trackMask, IntStream.range(1, 5).toArray(), dir)));
@@ -213,11 +210,11 @@ public class FencingCommand {
           float trackWidthMultiplier = (float) trackWidth / normalTrackWidth;
           List<Integer> effectiveTrackPositions = normalTrackPositions.stream().map(pos -> Math.round(pos * trackWidthMultiplier)).toList();
 
-          return buildCatenaryWithFence(poleLocations, catenaryType, editSession, point, point2, trackWidth, poleBasePattern, fencingPattern, catenaryDirection, oppositeToCatenaryDirection, catenaryHeight, trackMask, effectiveTrackPositions, fencingHeight, baseMask, replaceableBlockMask);
+          return buildCatenaryWithFence(catenaryType, editSession, point, point2, trackWidth, poleBasePattern, fencingPattern, catenaryDirection, oppositeToCatenaryDirection, catenaryHeight, effectiveTrackPositions, fencingHeight, baseMask, replaceableBlockMask);
         } else if (!poleLocations.contains(point)) {
           return buildFence(editSession, point, fencingHeight, baseMask, replaceableBlockMask, fencingPattern, true);
         } else {
-          return Stream.<SetBlockOperation>empty();
+          return Stream.<PatternRecord>empty();
         }
       }).flatMap(Function.identity());
 
@@ -273,7 +270,7 @@ public class FencingCommand {
     return trackBlocksCount;
   }
 
-  private static Stream<SetBlockOperation> buildCatenaryWithFence(List<BlockVector3> poleLocations, CatenaryType catenaryType, EditSession editSession, BlockVector3 point1, BlockVector3 point2, int trackWidth, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Mask trackMask, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) {
+  private static Stream<PatternRecord> buildCatenaryWithFence(CatenaryType catenaryType, EditSession editSession, BlockVector3 point1, BlockVector3 point2, int trackWidth, Pattern poleBasePattern, Pattern fencingPattern, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int catenaryHeight, Collection<Integer> trackPositions, int fencingHeight, Mask baseMask, Mask replaceableBlockMask) {
     // If catenary is gantry-mounted and one side is higher, we need to increase the gantry height so that it lines up
     int catenaryHeight1 = catenaryType == GANTRY_MOUNTED ? Math.max(catenaryHeight, catenaryHeight + point2.getY() - point1.getY()) : catenaryHeight;
     int catenaryHeight2 = catenaryType == GANTRY_MOUNTED ? Math.max(catenaryHeight, catenaryHeight + point1.getY() - point2.getY()) : catenaryHeight;
@@ -296,14 +293,14 @@ public class FencingCommand {
         // Build racks and nodes
         // If catenary is gantry_mounted, also build a gantry
         switch (catenaryType) {
-          case NONE -> Stream.<SetBlockOperation>empty();
-          case POLE_MOUNTED_SINGLE -> buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection);
-          case POLE_MOUNTED_DOUBLE -> Stream.concat(buildNode(editSession, origin1, catenaryDirection, oppositeToCatenaryDirection), buildNode(editSession, origin2, oppositeToCatenaryDirection, catenaryDirection));
-          case GANTRY_MOUNTED -> Stream.concat(buildGantry(editSession, origin1.add(BlockVector3.UNIT_Y), catenaryDirection, oppositeToCatenaryDirection, trackWidth, trackPositions, true), buildGantry(editSession, origin2.add(BlockVector3.UNIT_Y), oppositeToCatenaryDirection, catenaryDirection, trackWidth, trackPositions, false));
+          case NONE -> Stream.<PatternRecord>empty();
+          case POLE_MOUNTED_SINGLE -> buildNode(origin1, catenaryDirection, oppositeToCatenaryDirection);
+          case POLE_MOUNTED_DOUBLE -> Stream.concat(buildNode(origin1, catenaryDirection, oppositeToCatenaryDirection), buildNode(origin2, oppositeToCatenaryDirection, catenaryDirection));
+          case GANTRY_MOUNTED -> Stream.concat(buildGantry(origin1.add(BlockVector3.UNIT_Y), catenaryDirection, oppositeToCatenaryDirection, trackWidth, trackPositions, true), buildGantry(origin2.add(BlockVector3.UNIT_Y), oppositeToCatenaryDirection, catenaryDirection, trackWidth, trackPositions, false));
         }).flatMap(Function.identity());
   }
 
-  private static Stream<SetBlockOperation> buildPole(EditSession editSession, BlockVector3 point, int catenaryHeight, int fencingHeight, int baseBlockHeight, Mask baseMask, Pattern poleBase, Direction catenaryDirection) {
+  private static Stream<PatternRecord> buildPole(EditSession editSession, BlockVector3 point, int catenaryHeight, int fencingHeight, int baseBlockHeight, Mask baseMask, Pattern poleBase, Direction catenaryDirection) {
     IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, editSession.getWorld().getMinY(), editSession.getWorld().getMaxY()));
 
     BlockVector3 baseBlock = BlockVector3.at(point.getX(), baseBlockHeight, point.getZ());
@@ -315,10 +312,10 @@ public class FencingCommand {
     // Build pole base and pole
     // If baseBlock is above point, then build pole base all the way past catenaryHeight and increase baseBlock Y coordinate so that fencing is built higher
     // Otherwise, only build pole base up to fencingHeight, include a rack pole, and continue in order to prevent fencing from overwriting pole base.
-    return IntStream.range(0, catenaryHeight + 1).mapToObj(i -> baseBlockHeight > point.getY() || i < actualFencingHeight ? new SetBlockOperation(point.add(0, i + 1, 0), poleBase) : new SetBlockOperation(point.add(0, i + 1, 0), pole.getState(Map.of(pole.getProperty("facing"), catenaryDirection))));
+    return IntStream.range(0, catenaryHeight + 1).mapToObj(i -> baseBlockHeight > point.getY() || i < actualFencingHeight ? new PatternRecord(point.add(0, i + 1, 0), poleBase) : new PatternRecord(point.add(0, i + 1, 0), pole.getState(Map.of(pole.getProperty("facing"), catenaryDirection))));
   }
 
-  private static Stream<SetBlockOperation> buildFence(EditSession editSession, BlockVector3 point, int fencingHeight, Mask baseMask, Mask replaceableBlockMask, Pattern fencingPattern, boolean applyHeightBonus) {
+  private static Stream<PatternRecord> buildFence(EditSession editSession, BlockVector3 point, int fencingHeight, Mask baseMask, Mask replaceableBlockMask, Pattern fencingPattern, boolean applyHeightBonus) {
     IntStream surroundingHeightMap = IntStream.range(1, 5).flatMap(i -> getSurroundingHeightMap(point, editSession, baseMask, i, editSession.getWorld().getMinY(), editSession.getWorld().getMaxY()));
 
     int baseBlockHeight = Math.max(point.getY(), editSession.getHighestTerrainBlock(point.getX(), point.getZ(), 0, 255, baseMask));
@@ -326,40 +323,40 @@ public class FencingCommand {
     int actualFencingHeight = applyHeightBonus ? fencingHeight + (Math.max(baseBlockHeight, surroundingHeightMap.max().getAsInt()) - baseBlock.getY()) : fencingHeight;
 
     // If there is no ground above the base block, then build the fence
-    return replaceableBlockMask.test(baseBlock.add(BlockVector3.UNIT_Y)) ? IntStream.range(0, actualFencingHeight).mapToObj(i -> new SetBlockOperation(baseBlock.add(0, i + 1, 0), fencingPattern)) : Stream.empty();
+    return replaceableBlockMask.test(baseBlock.add(BlockVector3.UNIT_Y)) ? IntStream.range(0, actualFencingHeight).mapToObj(i -> new PatternRecord(baseBlock.add(0, i + 1, 0), fencingPattern)) : Stream.empty();
   }
 
-  private static Stream<SetBlockOperation> buildNode(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) {
+  private static Stream<PatternRecord> buildNode(BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) {
     BlockType catenaryRack1 = BlockTypes.get("msd:catenary_rack_1");
     BlockType catenaryRack2 = BlockTypes.get("msd:catenary_rack_2");
     BlockType catenaryNode = BlockTypes.get("msd:catenary_node");
     BlockType rackPole = BlockTypes.get("msd:catenary_rack_pole");
 
-    return Stream.of(new SetBlockOperation(origin, rackPole.getState(Map.of(rackPole.getProperty("facing"), oppositeToCatenaryDirection))),
-        new SetBlockOperation(origin.add(catenaryDirection.toBlockVector()), catenaryRack2.getState(Map.of(catenaryRack2.getProperty("facing"), oppositeToCatenaryDirection))),
-        new SetBlockOperation(origin.add(catenaryDirection.toBlockVector().multiply(2)), catenaryRack1.getState(Map.of(catenaryRack1.getProperty("facing"), oppositeToCatenaryDirection))),
-        new SetBlockOperation(origin.add(catenaryDirection.toBlockVector().multiply(3)), catenaryNode.getState(Map.of(catenaryNode.getProperty("facing"), catenaryDirection, catenaryNode.getProperty("is_connected"), false))));
+    return Stream.of(new PatternRecord(origin, rackPole.getState(Map.of(rackPole.getProperty("facing"), oppositeToCatenaryDirection))),
+        new PatternRecord(origin.add(catenaryDirection.toBlockVector()), catenaryRack2.getState(Map.of(catenaryRack2.getProperty("facing"), oppositeToCatenaryDirection))),
+        new PatternRecord(origin.add(catenaryDirection.toBlockVector().multiply(2)), catenaryRack1.getState(Map.of(catenaryRack1.getProperty("facing"), oppositeToCatenaryDirection))),
+        new PatternRecord(origin.add(catenaryDirection.toBlockVector().multiply(3)), catenaryNode.getState(Map.of(catenaryNode.getProperty("facing"), catenaryDirection, catenaryNode.getProperty("is_connected"), false))));
   }
 
-  private static Stream<SetBlockOperation> buildGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int trackWidth, Collection<Integer> trackPositions, boolean includeNode) {
+  private static Stream<PatternRecord> buildGantry(BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection, int trackWidth, Collection<Integer> trackPositions, boolean includeNode) {
     BlockType gantrySide = BlockTypes.get("msd:catenary_pole_top_side");
     BlockType gantryMiddle = BlockTypes.get("msd:catenary_pole_top_middle");
 
-    return Stream.of(Stream.of(new SetBlockOperation(origin.add(catenaryDirection.toBlockVector()), gantrySide.getState(Map.of(gantrySide.getProperty("facing"), oppositeToCatenaryDirection)))),
-        IntStream.range(2, trackWidth / 2 + 1).mapToObj(i -> new SetBlockOperation(origin.add(catenaryDirection.toBlockVector().multiply(i)), gantryMiddle.getState(Map.of(gantrySide.getProperty("facing"), catenaryDirection)))),
-        IntStream.range(2, trackWidth).filter(i -> includeNode && trackPositions.contains(i)).mapToObj(i -> buildNodeUnderGantry(editSession, origin.add(catenaryDirection.toBlockVector().multiply(i)), catenaryDirection, oppositeToCatenaryDirection)).flatMap(Function.identity())).flatMap(Function.identity());
+    return Stream.of(Stream.of(new PatternRecord(origin.add(catenaryDirection.toBlockVector()), gantrySide.getState(Map.of(gantrySide.getProperty("facing"), oppositeToCatenaryDirection)))),
+        IntStream.range(2, trackWidth / 2 + 1).mapToObj(i -> new PatternRecord(origin.add(catenaryDirection.toBlockVector().multiply(i)), gantryMiddle.getState(Map.of(gantrySide.getProperty("facing"), catenaryDirection)))),
+        IntStream.range(2, trackWidth).filter(i -> includeNode && trackPositions.contains(i)).mapToObj(i -> buildNodeUnderGantry(origin.add(catenaryDirection.toBlockVector().multiply(i)), catenaryDirection, oppositeToCatenaryDirection)).flatMap(Function.identity())).flatMap(Function.identity());
   }
 
-  private static Stream<SetBlockOperation> buildNodeUnderGantry(EditSession editSession, BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) {
+  private static Stream<PatternRecord> buildNodeUnderGantry(BlockVector3 origin, Direction catenaryDirection, Direction oppositeToCatenaryDirection) {
     BlockType shortCatenaryRackBothSide = BlockTypes.get("msd:short_catenary_rack_both_side");
     BlockType shortCatenaryRack = BlockTypes.get("msd:short_catenary_rack");
     BlockType shortCatenaryNode = BlockTypes.get("msd:short_catenary_node");
 
     BlockVector3 rackLocation = origin.subtract(0, 2, 0);
-    return Stream.of(new SetBlockOperation(rackLocation, shortCatenaryRackBothSide.getState(Map.of(shortCatenaryRackBothSide.getProperty("facing"), catenaryDirection))),
-        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector()), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), oppositeToCatenaryDirection))),
-        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector().multiply(-1)), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), catenaryDirection))),
-        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector().multiply(2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), catenaryDirection, shortCatenaryNode.getProperty("is_connected"), false))),
-        new SetBlockOperation(rackLocation.add(catenaryDirection.toBlockVector().multiply(-2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), oppositeToCatenaryDirection, shortCatenaryNode.getProperty("is_connected"), false))));
+    return Stream.of(new PatternRecord(rackLocation, shortCatenaryRackBothSide.getState(Map.of(shortCatenaryRackBothSide.getProperty("facing"), catenaryDirection))),
+        new PatternRecord(rackLocation.add(catenaryDirection.toBlockVector()), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), oppositeToCatenaryDirection))),
+        new PatternRecord(rackLocation.add(catenaryDirection.toBlockVector().multiply(-1)), shortCatenaryRack.getState(Map.of(shortCatenaryRack.getProperty("facing"), catenaryDirection))),
+        new PatternRecord(rackLocation.add(catenaryDirection.toBlockVector().multiply(2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), catenaryDirection, shortCatenaryNode.getProperty("is_connected"), false))),
+        new PatternRecord(rackLocation.add(catenaryDirection.toBlockVector().multiply(-2)), shortCatenaryNode.getState(Map.of(shortCatenaryNode.getProperty("facing"), oppositeToCatenaryDirection, shortCatenaryNode.getProperty("is_connected"), false))));
   }
 }

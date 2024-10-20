@@ -1,4 +1,4 @@
-package com.tj.regions;
+package com.tj.corridorconstructiontool.regions;
 
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.regions.CuboidRegion;

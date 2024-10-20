@@ -15,14 +15,14 @@
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"com.example.CorridorConstructionTool"
+			"com.tj.corridorconstructiontool.CorridorConstructionTool"
 		],
 		"client": [
-			"com.example.CorridorConstructionToolClient"
+			"com.tj.corridorconstructiontool.CorridorConstructionToolClient"
 		]
 	},
 	"mixins": [
-		"modid.mixins.json",
+		"corridorconstructiontool.mixins.json",
 		{
 			"config": "modid.client.mixins.json",
 			"environment": "client"

@@ -1,4 +1,4 @@
-package com.tj.function;
+package com.tj.corridorconstructiontool.function;
 
 import java.io.File;
 import java.io.FileInputStream;

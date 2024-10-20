@@ -1,4 +1,4 @@
-package com.tj.function.mask;
+package com.tj.corridorconstructiontool.function.mask;
 
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.function.mask.AbstractExtentMask;

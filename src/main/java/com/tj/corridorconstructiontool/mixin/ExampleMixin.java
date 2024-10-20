@@ -1,4 +1,4 @@
-package com.tj.mixin;
+package com.tj.corridorconstructiontool.mixin;
 
 import net.minecraft.server.MinecraftServer;
 import org.spongepowered.asm.mixin.Mixin;

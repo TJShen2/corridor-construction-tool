@@ -1,4 +1,4 @@
-package com.tj;
+package com.tj.corridorconstructiontool.operation;
 
 import com.sk89q.worldedit.function.pattern.Pattern;
 import com.sk89q.worldedit.math.BlockVector3;
@@ -8,4 +8,4 @@ import com.sk89q.worldedit.math.BlockVector3;
  * @author TJ Shen
  * @version 1.0.0
  */
-public record SetBlockOperation(BlockVector3 point, Pattern pattern) {}
+public record PatternRecord(BlockVector3 point, Pattern pattern) {}

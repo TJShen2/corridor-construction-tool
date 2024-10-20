@@ -1,4 +1,4 @@
-package com.tj;
+package com.tj.corridorconstructiontool;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.ArgumentTypeRegistry;
@@ -12,11 +12,10 @@ import org.slf4j.LoggerFactory;
 import com.sk89q.worldedit.WorldEdit;
 import com.tj.corridorconstructiontool.argument.CatenaryTypeArgumentType;
 import com.tj.corridorconstructiontool.argument.PillarOrientationArgumentType;
-import com.tj.corridorconstructiontool.command.EmbankmentCommand;
+import com.tj.corridorconstructiontool.command.ElevatedAlignmentCommand;
 import com.tj.corridorconstructiontool.command.FencingCommand;
-import com.tj.corridorconstructiontool.command.PillarCommand;
 import com.tj.corridorconstructiontool.command.TunnelCommand;
-import com.tj.factory.parser.pattern.SchematicPatternParser;
+import com.tj.corridorconstructiontool.factory.parser.pattern.SchematicPatternParser;
 
 /**
  * This class is the main class of CorridorConstructionTool that initializes the mod.
@@ -43,10 +42,9 @@ public class CorridorConstructionTool implements ModInitializer {
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "catenary_type"), CatenaryTypeArgumentType.class, ConstantArgumentSerializer.of(CatenaryTypeArgumentType::catenaryType));
 		ArgumentTypeRegistry.registerArgumentType(new Identifier("corridor_construction_tool", "pillar_orientation"), PillarOrientationArgumentType.class, ConstantArgumentSerializer.of(PillarOrientationArgumentType::orientation));
 
-		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> EmbankmentCommand.register(dispatcher));
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> ElevatedAlignmentCommand.register(dispatcher));
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> TunnelCommand.register(dispatcher));
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> FencingCommand.register(dispatcher));
-		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> PillarCommand.register(dispatcher));
 
 		LOGGER.info("Corridor construction tool has been initialized!");
 	}
