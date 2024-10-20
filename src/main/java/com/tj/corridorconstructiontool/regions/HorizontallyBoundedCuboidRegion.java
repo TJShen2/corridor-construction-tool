@@ -3,6 +3,9 @@ package com.tj.corridorconstructiontool.regions;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.regions.CuboidRegion;
 
+/**
+ * A subclass of CuboidRegion with convenient methods for finding maximum and minimum x and z in the region.
+ */
 public class HorizontallyBoundedCuboidRegion extends CuboidRegion {
   public HorizontallyBoundedCuboidRegion(BlockVector3 pos1, BlockVector3 pos2) {
     super(pos1, pos2);

@@ -1,5 +1,9 @@
 package com.tj.corridorconstructiontool.operation;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.MaxChangedBlocksException;
 import com.sk89q.worldedit.function.pattern.Pattern;
@@ -19,5 +23,10 @@ public record SetBlockOperation(EditSession session, BlockVector3 point, Pattern
     } catch (MaxChangedBlocksException e) {
       return false;
     }
+  }
+
+  @Override
+  public List<SetBlockOperation> toSetBlockOperations() {
+    return new ArrayList<>(Arrays.asList(this));
   }
 }

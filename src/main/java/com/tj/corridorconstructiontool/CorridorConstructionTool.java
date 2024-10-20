@@ -29,7 +29,6 @@ public class CorridorConstructionTool implements ModInitializer {
   public static final Logger LOGGER = LoggerFactory.getLogger("CorridorConstructionTool");
 
 	// TODO: Help/documentation in-game or on the web
-	// TODO: Fix embankment construction inconsistency
 
 	/**
 	 * Perform initialization tasks.

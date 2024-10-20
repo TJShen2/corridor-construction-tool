@@ -3,8 +3,11 @@ package com.tj.corridorconstructiontool.command;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
@@ -22,6 +25,7 @@ import com.sk89q.worldedit.WorldEditException;
 import com.sk89q.worldedit.extension.input.InputParseException;
 import com.sk89q.worldedit.function.mask.Mask;
 import com.sk89q.worldedit.function.mask.MaskIntersection;
+import com.sk89q.worldedit.function.mask.MaskUnion;
 import com.sk89q.worldedit.function.mask.Masks;
 import com.sk89q.worldedit.function.operation.Operation;
 import com.sk89q.worldedit.function.operation.Operations;
@@ -39,6 +43,7 @@ import com.sk89q.worldedit.util.formatting.text.TextComponent;
 import com.tj.corridorconstructiontool.CorridorConstructionConstants;
 import com.tj.corridorconstructiontool.argument.PillarOrientationArgumentType;
 import com.tj.corridorconstructiontool.operation.ColumnOperation;
+import com.tj.corridorconstructiontool.operation.SetBlockOperation;
 import com.tj.corridorconstructiontool.regions.HorizontallyBoundedCuboidRegion;
 import com.tj.corridorconstructiontool.function.DistanceToEdges;
 import com.tj.corridorconstructiontool.function.Functions;
@@ -144,8 +149,8 @@ public class ElevatedAlignmentCommand {
     List<Substring> maskPatternArgs = argParser.parseArgs().toList();
 
     // Verify input
-    if (maskPatternArgs.size() != 2) {
-      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][embankmentPattern]."));
+    if (maskPatternArgs.size() != 3) {
+      constants.actor().printError(TextComponent.of("The arguments provided for maskPatternInput did not match the expected arguments [trackMask][embankmentPattern][fillPattern]."));
     }
 
 		// Get schematic as clipboard
@@ -160,12 +165,10 @@ public class ElevatedAlignmentCommand {
 		//Define masks and patterns
     Mask trackMask = Functions.safeParseMaskUnion.apply(maskPatternArgs.get(0).getSubstring(), constants.parserContext());
     Pattern embankmentPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.parserContext());
+		Pattern fillPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(2).getSubstring(), constants.parserContext());
 
     Mask replaceableBlockMask = Functions.safeParseMaskUnion.apply("##corridor_construction_tool:elevated_replaceable", constants.parserContext());
 		Mask groundMask = Functions.groundMask.apply(trackMask, constants.parserContext());
-
-		// Define patterns
-		Pattern fillPattern = Functions.safeParsePattern.apply(maskPatternArgs.get(1).getSubstring(), constants.parserContext());
 
 		// Keep track of where pillars have already been placed
 		List<BlockVector3> pillarLocations = new ArrayList<>();
@@ -173,17 +176,22 @@ public class ElevatedAlignmentCommand {
 		try (EditSession editSession = WorldEdit.getInstance().newEditSession(constants.actor())) {
 			//Set the mask for the blocks that may be replaced by embankment
       Mask undergroundMask = new UndergroundMask(editSession, groundMask, 5);
-      editSession.setMask(new MaskIntersection(replaceableBlockMask, Masks.negate(undergroundMask)));
+			Mask embankmentReplaceable = new MaskIntersection(replaceableBlockMask, Masks.negate(undergroundMask));
 
 			//Set the mask for blocks that may be replaced by pillar
 			Mask pillarSupportMask = new UndergroundMask(editSession, groundMask, pillarDepth);
       Mask underTrackMask = new UndergroundMask(editSession, trackMask, 1);
       Mask pillarReplaceable = new MaskIntersection(Masks.negate(pillarSupportMask), underTrackMask);
 
+      editSession.setMask(new MaskUnion(embankmentReplaceable, pillarReplaceable));
+
 			// Provide feedback to user
       int blocksEvaluated = 0;
       long regionSize = constants.selectedRegion().getVolume();
       constants.actor().printInfo(TextComponent.of("Creating pillars..."));
+
+			// We will collect the embankment operations in this list
+			Set<SetBlockOperation> operations = new HashSet<>();
 
 			LOOPTHROUGHPOINTS: for (BlockVector3 point : constants.selectedRegion()) {
 				// Provide feedback to user
@@ -197,21 +205,10 @@ public class ElevatedAlignmentCommand {
 					int width = (int) Math.round(maxHeight / grade);
 
 					// If height map is suitable, create embankment. Otherwise, create pillar.
-					if (checkWideHeightMap(width, point, width, maxHeight, groundMask)) {
-						boolean isSurrounded = trackMask.test(point.add(BlockVector3.UNIT_X)) && trackMask.test(point.add(BlockVector3.UNIT_Z)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_X)) && trackMask.test(point.add(BlockVector3.UNIT_MINUS_Z));
+					if (checkWideHeightMap(editSession, width, point, width, maxHeight, groundMask)) {
+						Region slopeRegion = new CuboidRegion(editSession.getWorld(), point.subtract(width, 0, width), point.add(width, 0, width));
+						operations.addAll(createSlope(point, replaceableBlockMask, embankmentPattern, editSession, (FlatRegion) slopeRegion, grade));
 
-						if (isSurrounded) {
-							createColumn(point.subtract(BlockVector3.UNIT_Y), maxHeight, replaceableBlockMask, embankmentPattern, editSession);
-						} else {
-							int[] edgeDirection = {
-									!trackMask.test(point.add(BlockVector3.UNIT_X)) ? 1 : 0,
-									!trackMask.test(point.add(BlockVector3.UNIT_Z)) ? 1 : 0,
-									!trackMask.test(point.add(BlockVector3.UNIT_MINUS_X)) ? 1 : 0,
-									!trackMask.test(point.add(BlockVector3.UNIT_MINUS_Z)) ? 1 : 0
-							};
-							Region slopeRegion = new CuboidRegion(editSession.getWorld(), point.subtract(width * edgeDirection[2], 0, width * edgeDirection[3]), point.add(width * edgeDirection[0], 0, width * edgeDirection[1]));
-							createSlope(point, maxHeight, replaceableBlockMask, embankmentPattern, editSession, (FlatRegion) slopeRegion, grade);
-						}
 					} else if (replaceableBlockMask.test(point.subtract(BlockVector3.UNIT_Y))) {
 						// Move clipboard origin to the centre of the pillar
 						DistanceToEdges pointDistanceToEdges = DistanceToEdges.findEdges(editSession, trackMask, point, trackWidth * 2, 2);
@@ -281,6 +278,11 @@ public class ElevatedAlignmentCommand {
 				}
 			}
 
+			// Complete all embankment operations
+			for (SetBlockOperation op : operations) {
+				op.complete();
+			}
+
 			constants.actor().printInfo(TextComponent.of("Elevated alignment successfully created."));
 			constants.actor().printInfo(TextComponent.of(String.valueOf(editSession.getBlockChangeCount()).concat(" blocks were changed.")));
 			constants.localSession().remember(editSession);
@@ -290,64 +292,46 @@ public class ElevatedAlignmentCommand {
 
 	private static Map<HeightMapArguments, Boolean> heightMaps = new HashMap<>();
 
-	private static boolean checkHeightMap(BlockVector3 origin, int radius, int maxHeight, Mask groundMask) {
-		if (heightMaps.containsKey(new HeightMapArguments(origin, radius, maxHeight, groundMask))) {
-			return heightMaps.get(new HeightMapArguments(origin, radius, maxHeight, groundMask));
+	private static boolean checkHeightMap(EditSession session, BlockVector3 origin, int maxHeight, Mask groundMask) {
+		if (heightMaps.containsKey(new HeightMapArguments(session, origin, maxHeight, groundMask))) {
+			return heightMaps.get(new HeightMapArguments(session, origin, maxHeight, groundMask));
 		}
-		//Hash table containing each column near the track
-		Map<BlockVector2, Boolean> columns = new HashMap<>();
 
-		BlockVector2 origin2D = origin.toBlockVector2();
+		Boolean isValidHeight = origin.getY() - session.getHighestTerrainBlock(origin.getX(), origin.getZ(), session.getWorld().getMinY(), origin.getY(), groundMask) <= maxHeight;
+		heightMaps.put(new HeightMapArguments(session, origin, maxHeight, groundMask), isValidHeight);
 
-		int validHeightCount = 0;
-		int invalidHeightCount = 0;
-
-		CuboidRegion region = new CuboidRegion(origin.subtract(radius, 0, radius), origin.add(radius, 0, radius));
-
-		for (BlockVector2 column : region.asFlatRegion()) {
-			if (column.distance(origin2D) <= radius) {
-					Boolean isValidHeight = columns.get(column);
-
-					if (isValidHeight == null) {
-							isValidHeight = groundMask.test(column.toBlockVector3(origin.getY() - maxHeight));
-							columns.put(column, isValidHeight);
-					}
-
-					if (isValidHeight) {
-							validHeightCount++;
-					} else {
-							invalidHeightCount++;
-					}
-			}
-		}
-		boolean isValidHeightMap = invalidHeightCount == 0 || validHeightCount / invalidHeightCount >= 19;
-
-		heightMaps.put(new HeightMapArguments(origin, radius, maxHeight, groundMask), isValidHeightMap);
-		return isValidHeightMap;
+		return isValidHeight;
 	}
 
-	record HeightMapArguments(BlockVector3 origin, int radius, int maxHeight, Mask groundMask) {}
+	record HeightMapArguments(EditSession session, BlockVector3 origin, int maxHeight, Mask groundMask) {}
 
-	private static boolean checkWideHeightMap(int width, BlockVector3 origin, int radius, int maxHeight, Mask groundMask) {
-		CuboidRegion checkHeightMapPoints = new CuboidRegion(origin.subtract(width, 0, width), origin.add(width, 0, width));
+	private static boolean checkWideHeightMap(EditSession session, int width, BlockVector3 origin, int radius, int maxHeight, Mask groundMask) {
+		Region checkHeightMapPoints = new CuboidRegion(origin.subtract(width, 0, width), origin.add(width, 0, width));
+		int invalidPointCount = 0;
+
 		for (BlockVector3 point : checkHeightMapPoints) {
-			if (!checkHeightMap(point, radius, maxHeight, groundMask)) {
-				return false;
+			if (!checkHeightMap(session, point, maxHeight, groundMask) && origin.distance(point) <= radius) {
+				invalidPointCount++;
 			}
 		}
-		return true;
-	}
-	private static void createColumn(BlockVector3 origin, int maxHeight, Mask replaceableBlockMask, Pattern embankmentMaterial, EditSession editSession) {
-		new ColumnOperation(editSession, origin.toBlockVector2(), maxHeight, replaceableBlockMask, embankmentMaterial).complete();
+		// We accept the embankment construction if the percentage of invalid heights is less than 5 %.
+ 		return invalidPointCount/checkHeightMapPoints.getVolume() < 0.05;
 	}
 
-	private static void createSlope(BlockVector3 origin, int maxHeight, Mask replaceableBlockMask, Pattern embankmentMaterial, EditSession editSession, FlatRegion slopeRegion, double grade) {
+	private static List<SetBlockOperation> createColumn(BlockVector3 origin, Mask replaceableBlockMask, Pattern embankmentMaterial, EditSession editSession) {
+		return new ColumnOperation(editSession, origin.toBlockVector2(), origin.getY(), replaceableBlockMask, embankmentMaterial).toSetBlockOperations();
+	}
+
+	private static List<SetBlockOperation> createSlope(BlockVector3 origin, Mask replaceableBlockMask, Pattern embankmentMaterial, EditSession editSession, FlatRegion slopeRegion, double grade) {
 		BlockVector2 origin2D = origin.toBlockVector2();
+		List<SetBlockOperation> columnOps = new ArrayList<>();
 
 		for (BlockVector2 column : slopeRegion.asFlatRegion()) {
 			double distanceFromOrigin = origin2D.distance(column);
 			BlockVector3 columnOrigin = column.toBlockVector3((int) (origin.getY() - Math.max(1, Math.round(grade * distanceFromOrigin))));
-			createColumn(columnOrigin, maxHeight, replaceableBlockMask, embankmentMaterial, editSession);
+			columnOps.addAll(createColumn(columnOrigin, replaceableBlockMask, embankmentMaterial, editSession));
 		}
+
+		return columnOps;
 	}
 }
